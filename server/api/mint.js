@@ -10,6 +10,17 @@ const { createMint, getOrCreateAssociatedTokenAccount, mintTo } = require('@sola
 const app = express();
 app.use(express.json());
 
+// Validate required environment variables
+if (!process.env.SUPABASE_URL) {
+  throw new Error('Missing SUPABASE_URL environment variable');
+}
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+  throw new Error('Missing SUPABASE_SERVICE_ROLE_KEY environment variable');
+}
+if (!process.env.SOLANA_PAYER_SECRET) {
+  throw new Error('Missing SOLANA_PAYER_SECRET environment variable');
+}
+
 // Initialize Supabase client with service role key
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -24,10 +35,14 @@ const connection = new Connection(
 
 // Load payer keypair (support base58 or JSON array)
 let payer;
-if (process.env.SOLANA_PAYER_SECRET.startsWith('[')) {
-  payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(process.env.SOLANA_PAYER_SECRET)));
-} else {
-  payer = Keypair.fromSecretKey(bs58.decode(process.env.SOLANA_PAYER_SECRET));
+try {
+  if (process.env.SOLANA_PAYER_SECRET.startsWith('[')) {
+    payer = Keypair.fromSecretKey(Uint8Array.from(JSON.parse(process.env.SOLANA_PAYER_SECRET)));
+  } else {
+    payer = Keypair.fromSecretKey(bs58.decode(process.env.SOLANA_PAYER_SECRET));
+  }
+} catch (error) {
+  throw new Error(`Invalid SOLANA_PAYER_SECRET format: ${error.message}`);
 }
 
 app.post('/mint', async (req, res) => {
@@ -50,11 +65,11 @@ app.post('/mint', async (req, res) => {
       return res.status(403).send('Must be admin');
     }
 
-    // Get payload data
+    // Get payload data  
     const { projectId, recipientWallet, amount, decimals = 0 } = req.body;
     
     if (!projectId || !recipientWallet || !amount) {
-      return res.status(400).send('Missing required parameters');
+      return res.status(400).json({ error: 'Missing required parameters: projectId, recipientWallet, amount' });
     }
     
     const recipient = new PublicKey(recipientWallet);
@@ -77,7 +92,11 @@ app.post('/mint', async (req, res) => {
     );
 
     // Mint tokens (amount must be integer adjusted for decimals)
-    const amountToMint = BigInt(amount) * BigInt(Math.pow(10, decimals));
+    const decimalsBI = BigInt(decimals);
+    const amountBI = BigInt(amount);
+    const tenBI = BigInt(10);
+    const factor = decimalsBI === BigInt(0) ? BigInt(1) : tenBI ** decimalsBI;
+    const amountToMint = amountBI * factor;
     const sig = await mintTo(
       connection,
       payer,
@@ -87,14 +106,20 @@ app.post('/mint', async (req, res) => {
       amountToMint
     );
 
-    // Store on Supabase tokens table
-    await supabase.from('tokens').insert([{ 
+    // Store on Supabase tokens table  
+    const { error: insertError } = await supabase.from('tokens').insert([{ 
       mint: mint.toBase58(), 
       project_id: projectId,
       recipient: recipientWallet, 
       amount, 
-      minted_tx: sig 
+      minted_tx: sig,
+      created_at: new Date().toISOString() 
     }]);
+    
+    if (insertError) {
+      console.error('Database insert error:', insertError);
+      // Don't fail the transaction, just log the error
+    }
 
     // Update project with mint address if not already set
     await supabase

@@ -6,6 +6,13 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import UserDashboard from './pages/UserDashboard';
 import AdminDashboard from './pages/AdminDashboard';
+import ProtectedRoute from './components/ProtectedRoute';
+import About from './pages/About';
+import Registry from './pages/Registry';
+import NewRegistry from './pages/NewRegistry';
+import Blog from './pages/Blog';
+import ProjectSubmission from './pages/ProjectSubmission';
+
 import './App.css';
 
 function App() {
@@ -17,8 +24,25 @@ function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<Signup />} />
-            <Route path="/dashboard" element={<UserDashboard />} />
-            <Route path="/admin" element={<AdminDashboard />} />
+            <Route path="/dashboard" element={
+              <ProtectedRoute>
+                <UserDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin" element={
+              <ProtectedRoute adminOnly>
+                <AdminDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/about" element={<About />} />
+            <Route path='/registry' element={<Registry />} />
+            <Route path='/new-registry' element={<NewRegistry />} />
+            <Route path='/blog' element={<Blog />} />
+            <Route path='/submit-project' element={
+              <ProtectedRoute>
+                <ProjectSubmission />
+              </ProtectedRoute>
+            } />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </div>

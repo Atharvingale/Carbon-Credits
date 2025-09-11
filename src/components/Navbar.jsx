@@ -1,71 +1,258 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AppBar, Toolbar, Typography, Button, Box, Container } from '@mui/material';
+import {
+  AppBar,
+  Toolbar,
+  Typography,
+  Button,
+  Box,
+  Container,
+  IconButton,
+  Drawer,
+  List,
+  ListItem,
+  ListItemText
+} from '@mui/material';
+import MenuIcon from '@mui/icons-material/Menu';
+import CloseIcon from '@mui/icons-material/Close';
 
 const Navbar = () => {
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  const handleDrawerToggle = () => {
+    setMobileOpen(!mobileOpen);
+  };
+
+  const navigationLinks = [
+    { name: 'Home', path: '/' },
+    { name: 'About Us', path: '/about' },
+    { name: 'Registry', path: '/registry' },
+    { name: 'New Registry', path: '/new-registry' },
+    { name: 'Submit Project', path: '/submit-project' },
+    { name: 'Blog & Newsletter', path: '/blog' }
+  ];
+
   return (
-    <AppBar position="static" color="transparent" elevation={0} sx={{ bgcolor: 'white' }}>
-      <Container maxWidth="lg">
-        <Toolbar disableGutters>
-          <Box sx={{ display: 'flex', alignItems: 'center', flexGrow: 1 }}>
-            <Typography
-              variant="h6"
+    <>
+      <AppBar
+        position="sticky"
+        elevation={0}
+        sx={{
+          background: 'linear-gradient(135deg, rgba(255, 255, 255, 0) 0%, rgba(26, 26, 26, 0) 100%)',
+          backdropFilter: 'blur(10px)',
+          borderBottom: '1px solid rgba(76, 175, 80, 0.1)'
+        }}
+      >
+        <Container maxWidth="xl">
+          <Toolbar
+            disableGutters
+            sx={{
+              minHeight: { xs: '64px', sm: '70px' },
+              justifyContent: 'space-between'
+            }}
+          >
+            {/* Logo Section */}
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              <Typography
+                variant="h5"
+                component={Link}
+                to="/"
+                sx={{
+                  fontWeight: 800,
+                  color: '#ffffff',
+                  textDecoration: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  transition: 'all 0.3s ease',
+                  '&:hover': {
+                    color: '#4CAF50'
+                  }
+                }}
+              >
+                <svg 
+                  width="32" 
+                  height="32" 
+                  viewBox="0 0 32 32" 
+                  fill="none" 
+                  xmlns="http://www.w3.org/2000/svg"
+                  style={{ marginRight: '8px' }}
+                >
+                  <circle cx="16" cy="16" r="14" fill="#4CAF50" opacity="0.1"/>
+                  <path d="M12 16c0-2.2 1.8-4 4-4s4 1.8 4 4-1.8 4-4 4-4-1.8-4-4z" fill="#4CAF50"/>
+                  <path d="M10 12l6 6M22 12l-6 6" stroke="#4CAF50" strokeWidth="2" strokeLinecap="round"/>
+                </svg>
+                <Box component="span" sx={{ fontSize: { xs: '1.3rem', sm: '1.5rem' } }}>
+                  Blue<Box component="span" sx={{ color: '#4CAF50' }}>Carbon</Box>
+                </Box>
+              </Typography>
+            </Box>
+
+            {/* Desktop Navigation */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Box sx={{ display: { xs: 'none', lg: 'flex' }, alignItems: 'center', gap: 1 }}>
+                {navigationLinks.map((link) => (
+                  <Button
+                    key={link.name}
+                    component={Link}
+                    to={link.path}
+                    sx={{
+                      color: 'rgba(255, 255, 255, 0.9)',
+                      px: 2,
+                      py: 1,
+                      borderRadius: '8px',
+                      textTransform: 'none',
+                      fontSize: '0.95rem',
+                      transition: 'all 0.3s ease',
+                      '&:hover': {
+                        color: '#4CAF50',
+                        backgroundColor: 'rgba(76, 175, 80, 0.1)'
+                      }
+                    }}
+                  >
+                    {link.name}
+                  </Button>
+                ))}
+              </Box>
+              
+              {/* Desktop Auth Section */}
+              <Box sx={{ display: { xs: 'none', lg: 'flex' }, gap: 1, ml: 2 }}>
+                <Button
+                  component={Link}
+                  to="/login"
+                  variant="outlined"
+                  sx={{
+                    color: '#ffffff',
+                    borderColor: 'rgba(255, 255, 255, 0.3)',
+                    textTransform: 'none',
+                    borderRadius: '25px',
+                    px: 3,
+                    '&:hover': {
+                      borderColor: '#4CAF50',
+                      color: '#4CAF50',
+                      backgroundColor: 'rgba(76, 175, 80, 0.1)'
+                    }
+                  }}
+                >
+                  Login
+                </Button>
+                <Button
+                  component={Link}
+                  to="/signup"
+                  variant="contained"
+                  sx={{
+                    bgcolor: '#4CAF50',
+                    textTransform: 'none',
+                    borderRadius: '25px',
+                    px: 3,
+                    '&:hover': {
+                      bgcolor: '#388E3C'
+                    }
+                  }}
+                >
+                  Sign Up
+                </Button>
+              </Box>
+
+              {/* Mobile Menu Button */}
+              <IconButton
+                onClick={handleDrawerToggle}
+                sx={{
+                  display: { lg: 'none' },
+                  color: '#ffffff',
+                  '&:hover': {
+                    color: '#4CAF50',
+                    backgroundColor: 'rgba(76, 175, 80, 0.1)'
+                  }
+                }}
+              >
+                <MenuIcon />
+              </IconButton>
+            </Box>
+          </Toolbar>
+        </Container>
+      </AppBar>
+      
+      {/* Mobile Menu */}
+      <Drawer
+        variant="temporary"
+        anchor="right"
+        open={mobileOpen}
+        onClose={handleDrawerToggle}
+        sx={{
+          display: { xs: 'block', lg: 'none' },
+          '& .MuiDrawer-paper': {
+            boxSizing: 'border-box',
+            width: 280,
+            background: 'linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%)',
+            color: '#ffffff'
+          }
+        }}
+      >
+        <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Typography variant="h6" sx={{ fontWeight: 700, color: '#4CAF50' }}>
+            BlueCarbon
+          </Typography>
+          <IconButton onClick={handleDrawerToggle} sx={{ color: '#ffffff' }}>
+            <CloseIcon />
+          </IconButton>
+        </Box>
+        <List sx={{ pt: 0 }}>
+          {navigationLinks.map((link) => (
+            <ListItem
+              key={link.name}
               component={Link}
-              to="/"
+              to={link.path}
+              onClick={handleDrawerToggle}
               sx={{
-                mr: 2,
-                fontWeight: 700,
-                color: '#0e766e',
-                textDecoration: 'none',
-                display: 'flex',
-                alignItems: 'center',
+                color: 'rgba(255, 255, 255, 0.9)',
+                transition: 'all 0.3s ease',
+                '&:hover': {
+                  backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                  color: '#4CAF50'
+                }
               }}
             >
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginRight: '8px' }}>
-                <circle cx="12" cy="12" r="10" fill="#0e766e" />
-              </svg>
-              BlueCarbon
-            </Typography>
-            
-            <Box sx={{ display: { xs: 'none', md: 'flex' }, ml: 4 }}>
-              <Button component={Link} to="/" color="inherit" sx={{ mx: 1 }}>
-                Home
-              </Button>
-              <Button component={Link} to="/about" color="inherit" sx={{ mx: 1 }}>
-                About Us
-              </Button>
-              <Button component={Link} to="/registry" color="inherit" sx={{ mx: 1 }}>
-                Registry
-              </Button>
-              <Button component={Link} to="/new-registry" color="inherit" sx={{ mx: 1 }}>
-                New Registry
-              </Button>
-              <Button component={Link} to="/blog" color="inherit" sx={{ mx: 1 }}>
-                Blog & Newsletter
-              </Button>
-            </Box>
-          </Box>
+              <ListItemText primary={link.name} />
+            </ListItem>
+          ))}
           
-          <Box>
-            <Button component={Link} to="/login" color="inherit" sx={{ mx: 1 }}>
+          <Box sx={{ mt: 2, px: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Button
+              component={Link}
+              to="/login"
+              onClick={handleDrawerToggle}
+              variant="outlined"
+              sx={{
+                color: '#ffffff',
+                borderColor: 'rgba(255, 255, 255, 0.3)',
+                textTransform: 'none',
+                '&:hover': {
+                  borderColor: '#4CAF50',
+                  color: '#4CAF50'
+                }
+              }}
+            >
               Login
             </Button>
-            <Button 
-              component={Link} 
-              to="/signup" 
-              variant="contained" 
-              sx={{ 
-                mx: 1, 
-                bgcolor: '#0e766e', 
-                '&:hover': { bgcolor: '#0a5c55' } 
+            <Button
+              component={Link}
+              to="/signup"
+              onClick={handleDrawerToggle}
+              variant="contained"
+              sx={{
+                bgcolor: '#4CAF50',
+                textTransform: 'none',
+                '&:hover': {
+                  bgcolor: '#388E3C'
+                }
               }}
             >
               Sign Up
             </Button>
           </Box>
-        </Toolbar>
-      </Container>
-    </AppBar>
+        </List>
+      </Drawer>
+    </>
   );
 };
 

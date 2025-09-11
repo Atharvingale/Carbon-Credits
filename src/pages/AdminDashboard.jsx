@@ -214,8 +214,10 @@ const AdminDashboard = () => {
                   <TableHead>
                     <TableRow>
                       <TableCell>Project Name</TableCell>
+                      <TableCell>Organization</TableCell>
+                      <TableCell>Type</TableCell>
                       <TableCell>Location</TableCell>
-                      <TableCell>Submitted By</TableCell>
+                      <TableCell>Contact</TableCell>
                       <TableCell>Date</TableCell>
                       <TableCell align="right">Actions</TableCell>
                     </TableRow>
@@ -226,8 +228,13 @@ const AdminDashboard = () => {
                         <TableCell component="th" scope="row">
                           {project.name}
                         </TableCell>
+                        <TableCell>{project.organization_name || 'N/A'}</TableCell>
+                        <TableCell>{project.project_type || 'N/A'}</TableCell>
                         <TableCell>{project.location}</TableCell>
-                        <TableCell>{project.submitted_by}</TableCell>
+                        <TableCell>
+                          <div>{project.submitted_by}</div>
+                          <div style={{ fontSize: '0.8em', color: '#666' }}>{project.contact_email}</div>
+                        </TableCell>
                         <TableCell>
                           {new Date(project.created_at).toLocaleDateString()}
                         </TableCell>
@@ -273,7 +280,8 @@ const AdminDashboard = () => {
                   <TableHead>
                     <TableRow>
                       <TableCell>Project Name</TableCell>
-                      <TableCell>Location</TableCell>
+                      <TableCell>Organization</TableCell>
+                      <TableCell>Type</TableCell>
                       <TableCell>Wallet Address</TableCell>
                       <TableCell>Approval Date</TableCell>
                       <TableCell align="right">Actions</TableCell>
@@ -285,7 +293,8 @@ const AdminDashboard = () => {
                         <TableCell component="th" scope="row">
                           {project.name}
                         </TableCell>
-                        <TableCell>{project.location}</TableCell>
+                        <TableCell>{project.organization_name || 'N/A'}</TableCell>
+                        <TableCell>{project.project_type || 'N/A'}</TableCell>
                         <TableCell>
                           {project.wallet_address ? 
                             `${project.wallet_address.slice(0, 6)}...${project.wallet_address.slice(-4)}` : 

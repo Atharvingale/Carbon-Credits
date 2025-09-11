@@ -4,6 +4,8 @@ import { useWallet, useConnection } from '@solana/wallet-adapter-react';
 import { TOKEN_PROGRAM_ID } from '@solana/spl-token';
 import { supabase } from '../lib/supabaseClient';
 import ConnectWallet from '../components/ConnectWallet';
+import TokenList from '../components/TokenList';
+import { Link } from 'react-router-dom';
 import { 
   Box, Container, Typography, Paper, Grid, Button, 
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, 
@@ -135,31 +137,8 @@ const UserDashboard = () => {
                 <Typography variant="body2" color="text.secondary">
                   Connect your wallet to view your carbon credits.
                 </Typography>
-              ) : tokens.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">
-                  No carbon credit tokens found in your wallet.
-                </Typography>
               ) : (
-                <TableContainer>
-                  <Table>
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>Token</TableCell>
-                        <TableCell align="right">Amount</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {tokens.map((token) => (
-                        <TableRow key={token.mint}>
-                          <TableCell component="th" scope="row">
-                            {token.mint.slice(0, 6)}...{token.mint.slice(-4)}
-                          </TableCell>
-                          <TableCell align="right">{token.amount}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </TableContainer>
+                <TokenList tokens={tokens} cluster="devnet" />
               )}
             </Paper>
           </Grid>
@@ -218,17 +197,25 @@ const UserDashboard = () => {
             </Paper>
           </Grid>
           
-          {/* Upload Field Data Section */}
+          {/* Submit Project Section */}
           <Grid item xs={12}>
             <Paper elevation={2} sx={{ p: 3 }}>
               <Typography variant="h6" gutterBottom>
-                Upload Field Data
+                Submit New Project
               </Typography>
               <Typography variant="body2" paragraph>
-                Upload plantation and restoration data from your field activities to generate carbon credits.
+                Have a blue carbon project? Submit it for verification and carbon credit minting.
               </Typography>
-              <Button variant="contained" disabled={!publicKey}>
-                Upload Data
+              <Button 
+                component={Link} 
+                to="/submit-project"
+                variant="contained" 
+                sx={{ 
+                  backgroundColor: '#2a9d8f',
+                  '&:hover': { backgroundColor: '#238276' }
+                }}
+              >
+                Submit Project
               </Button>
             </Paper>
           </Grid>

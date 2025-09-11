@@ -1,0 +1,107 @@
+import React, { useState, useEffect } from 'react';
+import { Navigate } from 'react-router-dom';
+import { supabase } from '../lib/supabaseClient';
+import { Box, CircularProgress, Typography } from '@mui/material';
+
+const ProtectedRoute = ({ children, adminOnly = false }) => {
+  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        // Get current session
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+        
+        if (sessionError) {
+          console.error('Session error:', sessionError);
+          setLoading(false);
+          return;
+        }
+
+        if (!session) {
+          setLoading(false);
+          return;
+        }
+
+        setUser(session.user);
+
+        // If admin access is required, check user role
+        if (adminOnly) {
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', session.user.id)
+            .single();
+
+          if (profileError) {
+            console.error('Profile error:', profileError);
+            setLoading(false);
+            return;
+          }
+
+          setIsAdmin(profile?.role === 'admin');
+        }
+      } catch (error) {
+        console.error('Auth check error:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        setUser(null);
+        setIsAdmin(false);
+      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        setUser(session?.user || null);
+        // Re-check admin status if needed
+        if (adminOnly && session?.user) {
+          checkAuth();
+        }
+      }
+    });
+
+    return () => subscription.unsubscribe();
+  }, [adminOnly]);
+
+  // Show loading spinner while checking authentication
+  if (loading) {
+    return (
+      <Box 
+        sx={{ 
+          display: 'flex', 
+          flexDirection: 'column',
+          alignItems: 'center', 
+          justifyContent: 'center', 
+          minHeight: '50vh',
+          gap: 2
+        }}
+      >
+        <CircularProgress size={40} />
+        <Typography variant="body2" color="text.secondary">
+          Checking authentication...
+        </Typography>
+      </Box>
+    );
+  }
+
+  // Redirect to login if not authenticated
+  if (!user) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // Redirect to user dashboard if admin access required but user is not admin
+  if (adminOnly && !isAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  // Render protected content
+  return children;
+};
+
+export default ProtectedRoute;
