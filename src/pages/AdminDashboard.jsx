@@ -135,6 +135,8 @@ const AdminDashboard = () => {
 
   const fetchDashboardData = async () => {
     try {
+      console.log('🔍 Admin Dashboard: Fetching dashboard data...');
+      
       // Fetch all users with detailed info
       const { data: usersData, error: usersError } = await supabase
         .from('profiles')
@@ -142,44 +144,44 @@ const AdminDashboard = () => {
         .order('created_at', { ascending: false });
       
       if (usersError) throw usersError;
+      console.log('✅ Admin Dashboard: Users loaded:', usersData?.length);
       setAllUsers(usersData || []);
       
-      // Fetch all projects with user info
+      // Fetch all projects from project_submissions table
       const { data: projectsData, error: projectsError } = await supabase
-        .from('projects')
-        .select(`
-          *,
-          profiles!projects_user_id_fkey(full_name, email)
-        `)
+        .from('project_submissions')
+        .select('*')
         .order('created_at', { ascending: false });
       
       if (projectsError) throw projectsError;
+      console.log('✅ Admin Dashboard: Projects loaded:', projectsData?.length);
+      console.log('✅ Admin Dashboard: First project:', projectsData?.[0]);
       setAllProjects(projectsData || []);
       
-      // Fetch all tokens with project and user info
-      const { data: tokensData, error: tokensError } = await supabase
-        .from('tokens')
-        .select(`
-          *,
-          projects(title, user_id),
-          profiles!tokens_user_id_fkey(full_name, email)
-        `)
-        .order('created_at', { ascending: false });
+      // Try to fetch tokens (may not exist)
+      try {
+        const { data: tokensData } = await supabase
+          .from('tokens')
+          .select('*')
+          .order('created_at', { ascending: false });
+        setAllTokens(tokensData || []);
+      } catch (tokensError) {
+        console.log('Tokens table not available:', tokensError.message);
+        setAllTokens([]);
+      }
       
-      if (tokensError) throw tokensError;
-      setAllTokens(tokensData || []);
-      
-      // Fetch admin logs if table exists
-      const { data: logsData } = await supabase
-        .from('admin_logs')
-        .select(`
-          *,
-          profiles!admin_logs_admin_id_fkey(full_name, email)
-        `)
-        .order('created_at', { ascending: false })
-        .limit(100);
-      
-      setAdminLogs(logsData || []);
+      // Try to fetch admin logs (may not exist)
+      try {
+        const { data: logsData } = await supabase
+          .from('admin_logs')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(100);
+        setAdminLogs(logsData || []);
+      } catch (logsError) {
+        console.log('Admin logs table not available:', logsError.message);
+        setAdminLogs([]);
+      }
       
     } catch (err) {
       console.error('Error fetching dashboard data:', err);

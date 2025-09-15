@@ -50,19 +50,15 @@ const UserDashboard = () => {
     setProjectsError(null);
     
     try {
+      console.log('🔍 UserDashboard: Fetching projects for user:', userId);
       const { data, error } = await supabase
-        .from('projects')
-        .select(`
-          id,
-          project_name,
-          description,
-          status,
-          location,
-          created_at,
-          updated_at
-        `)
+        .from('project_submissions')
+        .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
+        
+      console.log('✅ UserDashboard: Projects data:', data);
+      console.log('✅ UserDashboard: Projects count:', data?.length);
         
       if (error) {
         throw error;

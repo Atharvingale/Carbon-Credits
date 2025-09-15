@@ -12,6 +12,10 @@ import Registry from './pages/Registry';
 import NewRegistry from './pages/NewRegistry';
 import Blog from './pages/Blog';
 import ProjectSubmission from './pages/ProjectSubmission';
+import SimpleDebug from './components/SimpleDebug';
+
+// Add a route
+
 
 import './App.css';
 
@@ -43,6 +47,7 @@ function App() {
                 <ProjectSubmission />
               </ProtectedRoute>
             } />
+            <Route path="/debug" element={<SimpleDebug />} />
             <Route path="*" element={<Navigate to="/" />} />
           </Routes>
         </div>
