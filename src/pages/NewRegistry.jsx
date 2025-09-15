@@ -1,12 +1,43 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
-  Box, Button, Container, Grid, Typography, Stack, Divider 
+  Box, Button, Container, Grid, Typography, Stack, Divider, Alert, Snackbar 
 } from '@mui/material';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
+import { supabase } from '../lib/supabaseClient';
 
 const NewRegistry = () => {
+  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+  const [showLoginAlert, setShowLoginAlert] = useState(false);
+
+  // Check authentication status
+  useEffect(() => {
+    const checkAuth = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        setUser(session.user);
+      }
+    };
+    checkAuth();
+  }, []);
+
+  // Handle Start Registration button click
+  const handleStartRegistration = () => {
+    if (user) {
+      // User is logged in, redirect to project submission
+      navigate('/submit-project');
+    } else {
+      // User is not logged in, show alert and redirect to login
+      setShowLoginAlert(true);
+      setTimeout(() => {
+        navigate('/login');
+      }, 2000);
+    }
+  };
+
   return (
     <Box>
       {/* Hero Section */}
@@ -64,6 +95,7 @@ const NewRegistry = () => {
                 variant="outlined" 
                 size="large"
                 endIcon={<ArrowForwardIcon />}
+                onClick={handleStartRegistration}
                 sx={{ 
                   borderColor: 'white', 
                   color: 'white',
@@ -124,6 +156,22 @@ const NewRegistry = () => {
 
       {/* Footer */}
       <Footer />
+      
+      {/* Login Alert Snackbar */}
+      <Snackbar
+        open={showLoginAlert}
+        autoHideDuration={2000}
+        onClose={() => setShowLoginAlert(false)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert 
+          severity="info" 
+          onClose={() => setShowLoginAlert(false)}
+          sx={{ width: '100%' }}
+        >
+          Please login to submit a project. Redirecting to login page...
+        </Alert>
+      </Snackbar>
     </Box>
   );
 };

@@ -40,8 +40,10 @@ const Login = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  // Check for message from signup page
+  // Check for message from signup page and redirect URL
   const message = location.state?.message;
+  const redirectUrl = new URLSearchParams(location.search).get('redirect') || 
+    (location.state?.from?.pathname);
 
   const handleLoginTypeChange = (event, newValue) => {
     setLoginType(newValue);
@@ -69,7 +71,10 @@ const Login = () => {
         throw new Error('You do not have admin privileges');
       }
       
-      if (profileData?.role === 'admin') {
+      // Redirect based on redirect URL or user role
+      if (redirectUrl) {
+        navigate(redirectUrl);
+      } else if (profileData?.role === 'admin') {
         navigate('/admin');
       } else {
         navigate('/dashboard');

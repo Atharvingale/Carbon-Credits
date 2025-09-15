@@ -69,17 +69,22 @@ const ProjectSubmission = () => {
     'Other Blue Carbon Project'
   ];
 
-  // Check authentication
+  // Get current user and ensure authentication (fallback protection)
   useEffect(() => {
-    const checkAuth = async () => {
+    const getUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        navigate('/login');
+      console.log('ProjectSubmission - Session check:', { session: !!session });
+      
+      if (!session || !session.user) {
+        console.log('ProjectSubmission - No session found, redirecting to login');
+        navigate('/login?redirect=%2Fsubmit-project');
         return;
       }
+      
+      console.log('ProjectSubmission - User authenticated:', session.user.email);
       setUser(session.user);
     };
-    checkAuth();
+    getUser();
   }, [navigate]);
 
   // Auto-fill wallet address when connected
@@ -136,6 +141,12 @@ const ProjectSubmission = () => {
     setError(null);
 
     try {
+      // Double-check user authentication before submission
+      if (!user || !user.id) {
+        setError('Authentication error. Please refresh and try again.');
+        return;
+      }
+
       const { error: submitError } = await supabase
         .from('projects')
         .insert([{
