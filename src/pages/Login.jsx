@@ -60,21 +60,29 @@ const Login = () => {
       if (error) throw error;
       
       // Check user role to redirect to appropriate dashboard
-      const { data: profileData } = await supabase
+      const { data: profileData, error: profileError } = await supabase
         .from('profiles')
         .select('role')
         .eq('id', data.user.id)
         .single();
       
-      // For admin login, verify the user has admin role
-      if (loginType === 'admin' && profileData?.role !== 'admin') {
+      if (profileError) {
+        console.error('Profile query error:', profileError);
+        throw new Error('Unable to verify user role. Please try again.');
+      }
+      
+      // Check if user is admin
+      const isAdmin = profileData?.role === 'admin';
+      
+      // Handle admin login validation
+      if (loginType === 'admin' && !isAdmin) {
         throw new Error('You do not have admin privileges');
       }
       
-      // Redirect based on redirect URL or user role
+      // Redirect based on user role
       if (redirectUrl) {
         navigate(redirectUrl);
-      } else if (profileData?.role === 'admin') {
+      } else if (isAdmin) {
         navigate('/admin');
       } else {
         navigate('/dashboard');

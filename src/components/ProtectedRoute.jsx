@@ -8,6 +8,7 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
+  const [userRole, setUserRole] = useState(null);
   const location = useLocation();
 
   useEffect(() => {
@@ -35,22 +36,24 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
         console.log('ProtectedRoute - User authenticated:', session.user.email);
         setUser(session.user);
 
-        // If admin access is required, check user role
-        if (adminOnly) {
-          const { data: profile, error: profileError } = await supabase
-            .from('profiles')
-            .select('role')
-            .eq('id', session.user.id)
-            .single();
+        // Always check user role for proper routing
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('role')
+          .eq('id', session.user.id)
+          .single();
 
-          if (profileError) {
-            console.error('Profile error:', profileError);
-            setLoading(false);
-            return;
-          }
-
-          setIsAdmin(profile?.role === 'admin');
+        if (profileError) {
+          console.error('Profile error:', profileError);
+          setLoading(false);
+          return;
         }
+
+        const role = profile?.role;
+        setUserRole(role);
+        setIsAdmin(role === 'admin');
+        
+        console.log('ProtectedRoute - User role:', role, 'Is admin:', role === 'admin');
       } catch (error) {
         console.error('Auth check error:', error);
         } finally {
@@ -134,9 +137,16 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
     );
   }
 
-  // Redirect to user dashboard if admin access required but user is not admin
+  // Handle admin-only routes
   if (adminOnly && !isAdmin) {
+    console.log('ProtectedRoute - Admin access required but user is not admin, redirecting to dashboard');
     return <Navigate to="/dashboard" replace />;
+  }
+  
+  // Handle admin users trying to access regular dashboard - redirect them to admin dashboard
+  if (!adminOnly && isAdmin && location.pathname === '/dashboard') {
+    console.log('ProtectedRoute - Admin user trying to access regular dashboard, redirecting to admin');
+    return <Navigate to="/admin" replace />;
   }
 
   // Render protected content
