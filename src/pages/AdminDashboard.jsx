@@ -43,8 +43,10 @@ import {
   Person as PersonIcon,
   Check as CheckIcon,
   Close as CloseIcon,
-  Token
+  Token,
+  Calculate as CalculateIcon
 } from '@mui/icons-material';
+import CarbonCreditCalculatorDialog from '../components/CarbonCreditCalculatorDialog';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -69,11 +71,13 @@ const AdminDashboard = () => {
   const [openEditProjectDialog, setOpenEditProjectDialog] = useState(false);
   const [openBlockUserDialog, setOpenBlockUserDialog] = useState(false);
   const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
+  const [calculatorOpen, setCalculatorOpen] = useState(false);
   
   // Selected items
   const [selectedUser, setSelectedUser] = useState(null);
   const [selectedProject, setSelectedProject] = useState(null);
   const [selectedToken, setSelectedToken] = useState(null);
+  const [calculationProject, setCalculationProject] = useState(null);
   
   // Form states
   const [recipientWallet, setRecipientWallet] = useState('');
@@ -521,6 +525,50 @@ const AdminDashboard = () => {
     handleMenuClose();
   };
 
+  // Carbon Credit Calculation Functions
+  const handleCalculateCredits = (project) => {
+    setCalculationProject(project);
+    setCalculatorOpen(true);
+  };
+
+  const handleCreditCalculated = async (creditAmount, calculationData) => {
+    try {
+      // Update project with calculated credits
+      const { error: updateError } = await supabase
+        .from('project_submissions')
+        .update({ 
+          status: 'credits_calculated',
+          calculated_credits: creditAmount,
+          calculation_data: calculationData,
+          calculation_timestamp: new Date().toISOString()
+        })
+        .eq('id', calculationProject.id);
+
+      if (updateError) throw updateError;
+
+      showSnackbar(`Successfully calculated ${creditAmount} carbon credits for ${calculationProject.title}`, 'success');
+      fetchDashboardData(); // Refresh the projects list
+    } catch (error) {
+      console.error('Error updating project:', error);
+      showSnackbar('Error updating project with calculated credits', 'error');
+    }
+  };
+
+  const hasValidCarbonData = (project) => {
+    try {
+      if (!project.carbon_data) return false;
+      const data = typeof project.carbon_data === 'string' 
+        ? JSON.parse(project.carbon_data) 
+        : project.carbon_data;
+      
+      // Check for required fields
+      return data.bulk_density && data.depth && data.carbon_percent && 
+             data.agb_biomass && data.bgb_biomass;
+    } catch (error) {
+      return false;
+    }
+  };
+
   // Helper functions
   const getStatusColor = (status) => {
     switch (status?.toLowerCase()) {
@@ -823,7 +871,24 @@ const AdminDashboard = () => {
                             Credits: {project.estimated_credits}
                           </Typography>
                         </Box>
-                        <Box sx={{ display: 'flex', gap: 1 }}>
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          <Button 
+                            size="small" 
+                            variant="contained"
+                            onClick={() => handleCalculateCredits(project)}
+                            disabled={!hasValidCarbonData(project)}
+                            sx={{ 
+                              bgcolor: '#8B5CF6',
+                              color: '#ffffff',
+                              fontSize: '0.7rem',
+                              minWidth: 'auto',
+                              px: 1.5,
+                              '&:hover': { bgcolor: '#7C3AED' },
+                              '&:disabled': { bgcolor: '#2d3748', color: '#6b7280' }
+                            }}
+                          >
+                            <CalculateIcon fontSize="small" />
+                          </Button>
                           <Button 
                             size="small" 
                             variant="contained"
@@ -1663,6 +1728,14 @@ const AdminDashboard = () => {
           </Button>
         </DialogActions>
       </Dialog>
+      
+      {/* Carbon Credit Calculator Dialog */}
+      <CarbonCreditCalculatorDialog
+        open={calculatorOpen}
+        onClose={() => setCalculatorOpen(false)}
+        project={calculationProject}
+        onCreditCalculated={handleCreditCalculated}
+      />
       
       {/* Snackbar for notifications */}
       <Snackbar

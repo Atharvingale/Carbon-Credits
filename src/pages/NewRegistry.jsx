@@ -111,48 +111,7 @@ const NewRegistry = () => {
         </Container>
       </Box>
 
-      {/* Registration Process Section */}
-      <Container maxWidth="lg" sx={{ py: 10 }}>
-        <Grid 
-          container 
-          spacing={6} 
-          alignItems="center" 
-          justifyContent="space-between"
-        >
-          {/* Text Left */}
-          <Grid item xs={12} md={6}>
-            <Typography variant="h3" sx={{ fontWeight: 700, mb: 3 }}>
-              STREAMLINED PROJECT REGISTRATION
-            </Typography>
-            <Divider sx={{ width: 80, height: 4, bgcolor: "#4CAF50", mb: 3 }} />
-            <Typography variant="body1" sx={{ mb: 3 }}>
-              Our registration process guides you through every step of creating a verified 
-              blue carbon project. From initial documentation to blockchain deployment, 
-              we ensure your project meets the highest standards for environmental impact 
-              and transparency.
-            </Typography>
-            <Typography variant="body1" sx={{ mb: 3 }}>
-              Each registered project receives a unique blockchain identifier and becomes 
-              part of our global registry of verified carbon removal initiatives.
-            </Typography>
-          </Grid>
-          
-          {/* Image Right */}
-          <Grid item xs={12} md={6} sx={{ display: "flex", justifyContent: "center" }}>
-            <Box
-              component="img"
-              src="https://trustedcarbon.org/wp-content/uploads/2025/01/2-1.webp"
-              alt="New Registry Process"
-              sx={{
-                width: "100%",
-                maxWidth: 500,
-                borderRadius: "12px",
-                boxShadow: "0 4px 20px rgba(0,0,0,0.15)",
-              }}
-            />
-          </Grid>
-        </Grid>
-      </Container>
+     
 
       {/* Footer */}
       <Footer />

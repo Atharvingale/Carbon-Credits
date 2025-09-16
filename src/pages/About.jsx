@@ -70,7 +70,7 @@ const About = () => {
               variant="body1"
               sx={{ mb: 6, maxWidth: "800px", mx: "auto" }}
             >
-              Trusted Carbon is a nature-based carbon registry that creates,
+              Blue Carbon is a nature-based carbon registry that creates,
               validates, and manages high-quality carbon credits. Using
               blockchain technology, Trusted Carbon ensures transparency,
               traceability, and integrity in carbon credit transactions.
@@ -285,7 +285,7 @@ const About = () => {
                     lineHeight: 1.3,
                   }}
                 >
-                  TRUSTED CARBON GENERAL RULES 2025
+                  BLUE CARBON GENERAL RULES 2025
                 </Typography>
                 <Typography
                   sx={{
