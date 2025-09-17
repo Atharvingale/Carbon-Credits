@@ -12,6 +12,7 @@ import {
   Science as ScienceIcon,
   Send as SendIcon
 } from '@mui/icons-material';
+import WalletRequirement from '../components/WalletRequirement';
 
 const initialFormData = {
   // Organization Information
@@ -118,6 +119,7 @@ export default function ProjectSubmission() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState(null);
   const [projectId, setProjectId] = useState(null);
+  const [walletAddress, setWalletAddress] = useState(null);
 
   // Check authentication
   useEffect(() => {
@@ -140,6 +142,11 @@ export default function ProjectSubmission() {
     setFormData({ ...formData, [fieldName]: value });
   };
 
+  const handleWalletConnected = (connectedWalletAddress) => {
+    setWalletAddress(connectedWalletAddress);
+    console.log('Wallet connected for project submission:', connectedWalletAddress);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSubmitting(true);
@@ -158,6 +165,8 @@ export default function ProjectSubmission() {
         organization_name: formData.organization_name,
         organization_email: formData.organization_email,
         contact_phone: formData.contact_phone,
+        // Include wallet address for token minting later
+        wallet_address: walletAddress,
         // Blue carbon parameters as JSON
         carbon_data: {
           bulk_density: parseFloat(formData.bulk_density) || null,
@@ -175,7 +184,7 @@ export default function ProjectSubmission() {
       };
 
       const { data, error } = await supabase
-        .from('project_submissions')
+        .from('projects')
         .insert([projectData])
         .select()
         .single();
@@ -222,7 +231,7 @@ export default function ProjectSubmission() {
     { value: 'tidal_flat', label: 'Tidal Flat' },
   ];
 
-  return (
+  const ProjectForm = () => (
     <Box sx={{ 
       minHeight: '100vh', 
       bgcolor: '#0a0f1c', 
@@ -654,5 +663,16 @@ export default function ProjectSubmission() {
         </Paper>
       </Container>
     </Box>
+  );
+
+  return (
+    <WalletRequirement 
+      context="project_creation"
+      actionName="create a project"
+      showWalletConnection={true}
+      onWalletConnected={handleWalletConnected}
+    >
+      <ProjectForm />
+    </WalletRequirement>
   );
 }

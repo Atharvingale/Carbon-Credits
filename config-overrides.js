@@ -2,6 +2,13 @@ const webpack = require('webpack');
 
 module.exports = function override(config) {
   // Add fallbacks for Node.js modules
+  // Add resolve alias
+  config.resolve.alias = {
+    ...config.resolve.alias,
+    'process/browser': require.resolve('process'),
+    'process/browser.js': require.resolve('process'),
+  };
+  
   config.resolve.fallback = {
     ...config.resolve.fallback,
     crypto: require.resolve('crypto-browserify'),

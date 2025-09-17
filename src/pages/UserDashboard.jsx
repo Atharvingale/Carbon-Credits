@@ -44,6 +44,37 @@ const UserDashboard = () => {
   const [anchorEl, setAnchorEl] = useState(null);
   const open = Boolean(anchorEl);
 
+  // Fetch user's carbon credits from tokens table
+  const fetchUserCarbonCredits = async (userId) => {
+    try {
+      // Get projects submitted by this user
+      const { data: userProjects, error: projectsError } = await supabase
+        .from('projects')
+        .select('id')
+        .eq('user_id', userId);
+      
+      if (projectsError) throw projectsError;
+      
+      if (userProjects && userProjects.length > 0) {
+        const projectIds = userProjects.map(p => p.id);
+        
+        // Get tokens for user's projects
+        const { data: userTokens, error: tokensError } = await supabase
+          .from('tokens')
+          .select('*')
+          .in('project_id', projectIds)
+          .eq('status', 'active');
+        
+        if (tokensError) throw tokensError;
+        
+        const totalCredits = userTokens?.reduce((sum, token) => sum + (token.amount || 0), 0) || 0;
+        setCarbonCredits(totalCredits);
+      }
+    } catch (err) {
+      console.error('Error fetching carbon credits:', err);
+    }
+  };
+
   // Fetch user's submitted projects
   const fetchUserProjects = async (userId) => {
     setProjectsLoading(true);
@@ -52,7 +83,7 @@ const UserDashboard = () => {
     try {
       console.log('🔍 UserDashboard: Fetching projects for user:', userId);
       const { data, error } = await supabase
-        .from('project_submissions')
+        .from('projects')
         .select('*')
         .eq('user_id', userId)
         .order('created_at', { ascending: false });
@@ -85,9 +116,10 @@ const UserDashboard = () => {
       setUser(session.user);
       setLoading(false);
       
-      // Fetch user's projects after authentication
+      // Fetch user's projects and carbon credits after authentication
       if (session.user) {
         fetchUserProjects(session.user.id);
+        fetchUserCarbonCredits(session.user.id);
       }
     };
     
@@ -199,7 +231,7 @@ const UserDashboard = () => {
   // Calculate project statistics
   const pendingProjects = projects.filter(p => p.status?.toLowerCase() === 'pending');
   const approvedProjects = projects.filter(p => p.status?.toLowerCase() === 'approved');
-  const totalCarbonCredits = tokens.reduce((sum, token) => sum + (token.amount || 0), 0);
+  const totalCarbonCredits = carbonCredits; // Use the fetched carbon credits from database
 
   return (
     <Box sx={{ 
@@ -210,9 +242,22 @@ const UserDashboard = () => {
     }}>
       <Container maxWidth="xl">
         {/* Header */}
+        {/* Wallet Integration Section */}
+        <Box sx={{ mb: 3 }}>
+          <Typography variant="h5" gutterBottom sx={{ color: '#00d4aa', fontWeight: 'bold' }}>
+            Wallet Connection
+          </Typography>
+          <ConnectWallet 
+            onWalletSaved={(walletAddress) => {
+              console.log('Wallet saved:', walletAddress);
+              // Optionally refresh user data or show confirmation
+            }}
+          />
+        </Box>
+        
         <Box sx={{ 
           display: 'flex', 
-          justifyContent: 'space-between', 
+          justifyContent: 'space-between',
           alignItems: 'center', 
           mb: 4,
           pt: 2

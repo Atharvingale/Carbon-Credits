@@ -7,11 +7,14 @@ import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
 import ArrowForwardIcon from '@mui/icons-material/ArrowForward';
 import { supabase } from '../lib/supabaseClient';
+import { checkUserWallet } from '../utils/walletUtils';
 
 const NewRegistry = () => {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
   const [showLoginAlert, setShowLoginAlert] = useState(false);
+  const [showWalletAlert, setShowWalletAlert] = useState(false);
+  const [walletLoading, setWalletLoading] = useState(false);
 
   // Check authentication status
   useEffect(() => {
@@ -25,16 +28,40 @@ const NewRegistry = () => {
   }, []);
 
   // Handle Start Registration button click
-  const handleStartRegistration = () => {
-    if (user) {
-      // User is logged in, redirect to project submission
-      navigate('/submit-project');
-    } else {
+  const handleStartRegistration = async () => {
+    if (!user) {
       // User is not logged in, show alert and redirect to login
       setShowLoginAlert(true);
       setTimeout(() => {
         navigate('/login');
       }, 2000);
+      return;
+    }
+
+    // User is logged in, check wallet requirement
+    setWalletLoading(true);
+    try {
+      const walletResult = await checkUserWallet(user.id);
+      
+      if (walletResult.hasWallet) {
+        // User has wallet, proceed to project submission
+        navigate('/submit-project');
+      } else {
+        // User doesn't have wallet, show alert
+        setShowWalletAlert(true);
+        setTimeout(() => {
+          navigate('/dashboard'); // Redirect to dashboard where they can connect wallet
+        }, 3000);
+      }
+    } catch (error) {
+      console.error('Error checking wallet:', error);
+      // On error, show wallet alert as precaution
+      setShowWalletAlert(true);
+      setTimeout(() => {
+        navigate('/dashboard');
+      }, 3000);
+    } finally {
+      setWalletLoading(false);
     }
   };
 
@@ -94,17 +121,42 @@ const NewRegistry = () => {
               <Button 
                 variant="outlined" 
                 size="large"
-                endIcon={<ArrowForwardIcon />}
+                endIcon={walletLoading ? null : <ArrowForwardIcon />}
                 onClick={handleStartRegistration}
+                disabled={walletLoading}
                 sx={{ 
                   borderColor: 'white', 
                   color: 'white',
                   '&:hover': { borderColor: 'white', bgcolor: 'rgba(255,255,255,0.1)' },
+                  '&.Mui-disabled': { borderColor: 'rgba(255,255,255,0.5)', color: 'rgba(255,255,255,0.5)' },
                   px: 4,
-                  py: 1.5
+                  py: 1.5,
+                  minWidth: '200px'
                 }}
               >
-                Start Registration
+                {walletLoading ? (
+                  <>
+                    <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box 
+                        sx={{ 
+                          width: 20, 
+                          height: 20, 
+                          border: '2px solid rgba(255,255,255,0.3)',
+                          borderTop: '2px solid white',
+                          borderRadius: '50%',
+                          animation: 'spin 1s linear infinite',
+                          '@keyframes spin': {
+                            '0%': { transform: 'rotate(0deg)' },
+                            '100%': { transform: 'rotate(360deg)' }
+                          }
+                        }} 
+                      />
+                      Checking...
+                    </Box>
+                  </>
+                ) : (
+                  'Start Registration'
+                )}
               </Button>
             </Stack>
           </Box>
@@ -129,6 +181,22 @@ const NewRegistry = () => {
           sx={{ width: '100%' }}
         >
           Please login to submit a project. Redirecting to login page...
+        </Alert>
+      </Snackbar>
+      
+      {/* Wallet Alert Snackbar */}
+      <Snackbar
+        open={showWalletAlert}
+        autoHideDuration={3000}
+        onClose={() => setShowWalletAlert(false)}
+        anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+      >
+        <Alert 
+          severity="warning" 
+          onClose={() => setShowWalletAlert(false)}
+          sx={{ width: '100%' }}
+        >
+          🔒 Wallet connection required to create projects. Redirecting to dashboard to connect your wallet...
         </Alert>
       </Snackbar>
     </Box>

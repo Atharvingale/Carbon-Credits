@@ -25,20 +25,9 @@ const Registry = () => {
   const fetchProjects = async () => {
     try {
       setLoading(true);
-      console.log('🔍 Registry: Fetching all projects...');
+      console.log('🔍 Registry: Fetching all projects from unified table...');
       
-      // Fetch from project_submissions table
-      const { data: submissionsData, error: submissionsError } = await supabase
-        .from('project_submissions')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (submissionsError) {
-        console.error('❌ Registry: Error fetching project submissions:', submissionsError);
-        throw submissionsError;
-      }
-
-      // Fetch from projects table
+      // Fetch from unified projects table
       const { data: projectsData, error: projectsError } = await supabase
         .from('projects')
         .select('*')
@@ -46,44 +35,24 @@ const Registry = () => {
 
       if (projectsError) {
         console.error('❌ Registry: Error fetching projects:', projectsError);
-        // Don't throw error, just log it - project_submissions is our primary source
+        throw projectsError;
       }
 
-      // Combine and format data
+      // Format data for display
       let allProjects = [];
       
-      // Add project submissions with source indicator
-      if (submissionsData) {
-        const formattedSubmissions = submissionsData.map(project => ({
-          ...project,
-          source_type: 'submission',
-          project_name: project.title,
-          company: project.organization_name,
-          credit_type: project.ecosystem_type || 'Blue Carbon',
-          credits: project.calculated_credits || project.estimated_credits || 0
-        }));
-        allProjects = [...allProjects, ...formattedSubmissions];
-      }
-
-      // Add projects from projects table with source indicator
       if (projectsData) {
         const formattedProjects = projectsData.map(project => ({
           ...project,
-          source_type: 'project',
-          project_name: project.name,
+          project_name: project.title || project.name,
           company: project.organization_name,
-          credit_type: project.project_type || project.verification_standard || 'Carbon Credit',
-          credits: project.credits_issued || project.estimated_credits || 0
+          credit_type: project.ecosystem_type || project.project_type || project.verification_standard || 'Blue Carbon',
+          credits: project.credits_issued || project.calculated_credits || project.estimated_credits || 0
         }));
-        allProjects = [...allProjects, ...formattedProjects];
+        allProjects = [...formattedProjects];
       }
 
-      // Sort by creation date (newest first)
-      allProjects.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
       console.log('✅ Registry: Successfully loaded projects:', {
-        submissions: submissionsData?.length || 0,
-        projects: projectsData?.length || 0,
         total: allProjects.length
       });
       

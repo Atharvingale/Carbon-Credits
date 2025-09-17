@@ -64,7 +64,7 @@ const NGODashboard = () => {
     setError(null);
     
     try {
-      console.log('🔍 Fetching user projects directly from project_submissions...');
+      console.log('🔍 Fetching user projects directly from projects...');
       
       // Get current user's session
       const { data: { session } } = await supabase.auth.getSession();
@@ -72,9 +72,9 @@ const NGODashboard = () => {
         throw new Error('No active session');
       }
       
-      // Query project_submissions for current user's projects
+      // Query projects for current user's projects
       const { data, error } = await supabase
-        .from('project_submissions')
+        .from('projects')
         .select('*')
         .eq('user_id', session.user.id)
         .order('created_at', { ascending: false });

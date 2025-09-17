@@ -12,7 +12,6 @@ import {
   List,
   ListItem,
   ListItemText,
-  Avatar,
   Menu,
   MenuItem,
   Divider,
