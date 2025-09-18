@@ -30,7 +30,10 @@
     "start": "react-app-rewired start",
     "build": "react-app-rewired build",
     "test": "react-app-rewired test",
-    "eject": "react-scripts eject"
+    "eject": "react-scripts eject",
+    "analyze": "node scripts/analyze-bundle.js",
+    "build:analyze": "npm run build && npm run analyze",
+    "verify": "node scripts/verify-setup.js"
   },
   "eslintConfig": {
     "extends": [
@@ -50,6 +53,7 @@
       "last 1 safari version"
     ]
   },
+  "proxy": "http://localhost:3001",
   "devDependencies": {
     "assert": "^2.1.0",
     "browserify-zlib": "^0.2.0",

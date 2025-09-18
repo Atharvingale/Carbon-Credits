@@ -8,7 +8,6 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [authChecked, setAuthChecked] = useState(false);
-  const [userRole, setUserRole] = useState(null);
   const location = useLocation();
 
   useEffect(() => {
@@ -50,7 +49,6 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
         }
 
         const role = profile?.role;
-        setUserRole(role);
         setIsAdmin(role === 'admin');
         
         console.log('ProtectedRoute - User role:', role, 'Is admin:', role === 'admin');

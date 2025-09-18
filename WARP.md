@@ -2,96 +2,250 @@
 
 This file provides guidance to WARP (warp.dev) when working with code in this repository.
 
-Project overview
-- Monorepo-style layout with a React frontend (Create React App + react-app-rewired) and a minimal Node/Express server for minting Solana SPL tokens and recording them in Supabase.
-- Frontend integrates Solana wallet adapters (Phantom) and Supabase auth. Admins mint carbon-credit tokens via the server endpoint.
+## Project Overview
 
-Prerequisites
-- Node.js LTS and npm
-- For Solana features: a Devnet RPC URL and a funded payer keypair via env vars
-- Supabase project with URL and keys
+**Blue Carbon MRV System** - A comprehensive React/Node.js application for blue carbon project management, monitoring, reporting, and verification (MRV) with blockchain-based token minting on Solana.
 
-Environment variables
-- Frontend (.env at repo root; CRA requires REACT_APP_ prefix):
-  - REACT_APP_SUPABASE_URL
-  - REACT_APP_SUPABASE_ANON_KEY
-  - REACT_APP_SOLANA_RPC_URL (optional; defaults to devnet)
-- Server (server/.env):
-  - SUPABASE_URL
-  - SUPABASE_SERVICE_ROLE_KEY
-  - SOLANA_RPC_URL (optional; defaults to https://api.devnet.solana.com)
-  - SOLANA_PAYER_SECRET (base58 string or JSON array for Keypair)
-  - PORT (optional; defaults to 3001)
+### Key Technologies
+- **Frontend**: React 19.1, Material-UI 7.3, React Router 7.8
+- **Backend**: Node.js/Express with multiple API services
+- **Database**: Supabase (PostgreSQL with real-time subscriptions)
+- **Blockchain**: Solana (SPL tokens for carbon credits)
+- **Authentication**: Supabase Auth with role-based access control
+- **Build Tools**: React App Rewired, Webpack 5 with crypto polyfills
 
-Install
-- Frontend: npm install
-- Server: (cd server && npm install)
+## Architecture Overview
 
-Common commands
-- Frontend dev server: npm start
-- Frontend build: npm run build
-- Frontend tests (watch): npm test
-- Run a single test: npm test -- <pattern>
-  - Example: npm test -- UserDashboard
-- Lint: CRA uses ESLint presets. Run via: npx eslint src --ext .js,.jsx (if eslint is installed globally/locally)
-- Server start (dev/prod): (cd server && npm start)
+### Frontend Architecture
+```
+src/
+├── components/          # Reusable UI components
+│   ├── Navbar.jsx      # Main navigation with auth state
+│   ├── Footer.jsx      # Site footer
+│   ├── ProtectedRoute.jsx  # Route protection with role checks
+│   ├── WalletProviderWrapper.jsx  # Solana wallet context
+│   └── *Dashboard.jsx  # Role-specific dashboards
+├── pages/              # Route-level page components
+│   ├── Landing.jsx     # Public homepage
+│   ├── Login.jsx       # Authentication page
+│   ├── Signup.jsx      # User registration
+│   ├── UserDashboard.jsx   # Regular user interface
+│   ├── AdminDashboard.jsx  # Admin management interface
+│   └── ProjectSubmission.jsx  # Project creation form
+├── lib/                # Core libraries and configs
+│   └── supabaseClient.js   # Database connection setup
+├── utils/              # Utility functions and helpers
+├── hooks/              # Custom React hooks
+├── services/           # API service modules
+└── images/             # Static assets
+```
 
-Windows/PowerShell notes
-- Use PowerShell-compatible commands as above. If using separate terminals, start frontend in one and server in another.
+### Backend Architecture
+```
+server/
+├── api/                # Express.js API endpoints
+│   ├── secure-mint.js  # Primary token minting service (port 3001)
+│   ├── mint.js         # Basic minting service (alternative)
+│   └── wallet.js       # Wallet management API
+├── logs/               # Application log files
+├── .env.example        # Server environment template
+└── package.json        # Server dependencies
+```
 
-Local development workflow
-- Start server first: (cd server && npm start)
-- Start frontend: npm start
-- Frontend expects the server route at /api/mint; configure a proxy if needed (see below).
+### Database Schema (Supabase)
+- **profiles**: User accounts with roles (admin, user) and wallet addresses
+- **projects**: Blue carbon projects with status tracking and credits calculation
+- **tokens**: Minted carbon credit tokens with blockchain transaction records
+- **admin_logs**: Administrative action audit trail
 
-Dev server proxy
-- If you serve the Express API on http://localhost:3001, set CRA proxy in package.json (root) to "proxy": "http://localhost:3001" so that fetch('/api/mint') works in development.
-  - Add or verify the proxy field if missing.
+### Authentication & Authorization
+- **Supabase Auth**: Email/password authentication with JWT tokens
+- **Role-based access**: `admin` role for system management, `user` role for project submission
+- **Route protection**: `ProtectedRoute` component handles authorization
+- **Admin-only features**: Token minting, project approval, user management
 
-High-level architecture
-- Frontend (React + MUI)
-  - src/index.js boots the app and sets window.process for browser polyfills used by Solana libs.
-  - src/App.js wires React Router routes for public pages and dashboards.
-  - Wallet context: src/components/WalletProviderWrapper.jsx
-    - Provides Solana ConnectionProvider + WalletProvider (Phantom adapter), reading REACT_APP_SOLANA_RPC_URL or devnet by default.
-  - Auth and data: src/lib/supabaseClient.js
-    - Creates a Supabase client from REACT_APP_SUPABASE_URL and REACT_APP_SUPABASE_ANON_KEY.
-  - UserDashboard.jsx
-    - Requires Supabase session; redirects to /login if absent.
-    - Uses wallet-adapter to read connected wallet, fetches SOL balance, SPL token accounts, and recent signatures from the configured cluster.
-  - AdminDashboard.jsx
-    - Requires Supabase session with profiles.role === 'admin'.
-    - Lists pending/approved projects from Supabase, allows approving.
-    - Mints tokens by POSTing to /api/mint with bearer JWT from Supabase session.
-  - Webpack/browser polyfills: config-overrides.js via react-app-rewired provides Node core shims (process, buffer, crypto, stream, zlib, util) required by Solana/Web3 in the browser.
+## Development Commands
 
-- Server (Express, server/api/mint.js)
-  - Loads env from server/.env.
-  - Creates Supabase service client using SUPABASE_SERVICE_ROLE_KEY to verify JWTs and update tables.
-  - Establishes a Solana Connection (Devnet by default) and derives a payer Keypair from SOLANA_PAYER_SECRET (base58 or JSON array).
-  - POST /api/mint
-    - Auth: expects Authorization: Bearer <JWT> (Supabase session access token).
-    - Verifies user via supabase.auth.getUser(token) and requires profiles.role === 'admin'.
-    - Creates a new mint, ensures recipient ATA, mints amount adjusted by decimals, records in Supabase tokens table, and updates projects.mint_address.
-    - Responds with mint address and explorer URL for Devnet.
+### Frontend Development
+```bash
+# Install dependencies
+npm install
 
-Data model expectations (Supabase)
-- profiles: { id (user id), role ('admin' to access mint) }
-- projects: fields include id, status ('pending'/'approved'), mint_address
-- tokens: mint, project_id, recipient, amount, minted_tx
+# Start development server (port 3000)
+npm start
 
-Notable implementation details
-- React uses react-app-rewired; do not use react-scripts directly for start/build/test.
-- For browser compatibility, window.process is explicitly set in src/index.js and Webpack fallbacks are provided.
-- src/lib/solana.js is currently empty; consider consolidating wallet/SPL helpers here.
+# Run tests (includes wallet testing utilities)
+npm test
 
-Troubleshooting
-- If frontend cannot call /api/mint in dev, add a proxy field in root package.json or configure the full server URL in the fetch call.
-- If Solana minting fails with secret format, ensure SOLANA_PAYER_SECRET is either base58 or a JSON array string of the secret key.
-- Ensure the payer has sufficient Devnet SOL to pay fees.
+# Build production bundle
+npm run build
 
-Key files to start with
-- Frontend: src/App.js, src/components/WalletProviderWrapper.jsx, src/pages/AdminDashboard.jsx, src/pages/UserDashboard.jsx
-- Server: server/api/mint.js
-- Build config: config-overrides.js, package.json (root and server)
+# Build and analyze bundle size
+npm run build:analyze
 
+# Verify development setup
+npm run verify
+```
+
+### Backend Development
+```bash
+# Navigate to server directory
+cd server
+
+# Install server dependencies
+npm install
+
+# Start production server (recommended - port 3001)
+npm start
+
+# Start basic minting server
+npm run start:basic
+
+# Start wallet management server
+npm run start:wallet
+
+# Development mode with auto-restart
+npm run dev
+
+# Development wallet server
+npm run dev:wallet
+```
+
+### Environment Setup
+
+#### Frontend (.env)
+```bash
+# Required Supabase configuration
+REACT_APP_SUPABASE_URL=your_supabase_url
+REACT_APP_SUPABASE_ANON_KEY=your_supabase_anon_key
+
+# Optional Solana configuration (defaults to devnet)
+REACT_APP_SOLANA_RPC_URL=https://api.devnet.solana.com
+REACT_APP_SOLANA_CLUSTER=devnet
+
+# Application metadata
+REACT_APP_APP_NAME=Blue Carbon MRV
+REACT_APP_VERSION=1.0.0
+REACT_APP_ENVIRONMENT=development
+```
+
+#### Backend (server/.env)
+```bash
+# Required for all server operations
+SUPABASE_URL=your_supabase_url
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
+
+# Required for token minting
+SOLANA_RPC_URL=https://api.devnet.solana.com
+SOLANA_PAYER_SECRET=[your_keypair_array_or_base58]
+SOLANA_CLUSTER=devnet
+
+# Server configuration
+PORT=3001
+NODE_ENV=development
+CORS_ORIGIN=http://localhost:3000
+
+# Security and monitoring
+JWT_SECRET=your_jwt_secret
+RATE_LIMIT_WINDOW_MS=900000
+RATE_LIMIT_MAX_REQUESTS=100
+LOG_LEVEL=info
+```
+
+## Key Development Patterns
+
+### Component Architecture
+- **Material-UI theming**: Dark theme with custom colors (#00d4aa primary, #0a0f1c background)
+- **Responsive design**: Mobile-first approach with breakpoint-based layouts
+- **Error boundaries**: Global error handling with `ErrorBoundary` component
+- **Lazy loading**: Route-level code splitting for performance
+
+### State Management
+- **React hooks**: useState, useEffect, useCallback for local state
+- **Context providers**: Wallet connection state via WalletProviderWrapper
+- **Supabase real-time**: Database subscriptions for live updates
+- **Form state**: Controlled components with validation
+
+### API Integration
+- **Supabase client**: Database operations and authentication
+- **RESTful endpoints**: Express.js APIs for blockchain operations
+- **Error handling**: Comprehensive error states and user feedback
+- **Rate limiting**: Built-in protection against abuse
+
+### Security Measures
+- **CORS configuration**: Restricted origins for API access
+- **Input validation**: express-validator for API endpoints
+- **Helmet.js**: Security headers and content security policy
+- **Rate limiting**: Per-IP and per-user request throttling
+- **Authentication middleware**: JWT token validation
+- **Role-based access**: Admin-only operations and UI sections
+
+## Common Development Tasks
+
+### Adding New Project Types
+1. Update database schema in Supabase
+2. Modify project validation in `utils/projectColumnMapping.js`
+3. Update carbon credit calculation in `utils/carbonCreditCalculator.js`
+4. Enhance project submission form components
+
+### Implementing New API Endpoints
+1. Create route in appropriate `server/api/*.js` file
+2. Add authentication middleware if required
+3. Implement validation with express-validator
+4. Update CORS and rate limiting as needed
+
+### Database Migrations
+1. Apply schema changes in Supabase dashboard
+2. Update TypeScript types if using
+3. Modify relevant utility functions for data normalization
+4. Test with existing data to ensure compatibility
+
+### Wallet Integration Testing
+- Use `src/utils/walletTestUtils.js` for comprehensive wallet testing
+- Mock wallet adapters available for different wallet providers
+- Test connection, disconnection, and transaction signing scenarios
+
+## Troubleshooting
+
+### Common Build Issues
+- **Buffer/crypto errors**: Handled by webpack configuration in `config-overrides.js`
+- **Node.js polyfills**: Configured for Solana web3.js compatibility
+- **Source map warnings**: Automatically ignored for node_modules
+
+### Runtime Issues
+- **Database connection**: Verify Supabase URL and keys in environment
+- **Wallet connection**: Ensure Solana RPC endpoint is accessible
+- **Token minting failures**: Check Solana payer account has sufficient SOL
+- **Authentication issues**: Verify JWT token validity and user roles
+
+### Performance Optimization
+- **Bundle analysis**: Use `npm run build:analyze` to identify large dependencies
+- **Lazy loading**: All pages are code-split by default
+- **Database queries**: Use Supabase select statements efficiently
+- **Real-time subscriptions**: Unsubscribe to prevent memory leaks
+
+## Production Deployment
+
+### Frontend Deployment
+- Build optimized bundle with `npm run build`
+- Serve static files from `build/` directory
+- Configure environment variables for production Supabase instance
+
+### Backend Deployment
+- Use `npm run prod` for production server startup
+- Configure production environment variables
+- Set up process manager (PM2) for auto-restart
+- Configure reverse proxy (nginx) for SSL termination
+
+### Database Considerations
+- Enable Supabase real-time for live updates
+- Configure row-level security (RLS) policies
+- Set up database backups and monitoring
+- Optimize queries for production load
+
+### Security Checklist
+- Rotate Supabase service role keys
+- Generate production-specific JWT secrets
+- Configure CORS for production domains
+- Enable rate limiting and monitoring
+- Set up logging and alerting

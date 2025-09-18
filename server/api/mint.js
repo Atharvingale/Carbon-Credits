@@ -66,13 +66,55 @@ app.post('/mint', async (req, res) => {
     }
 
     // Get payload data  
-    const { projectId, recipientWallet, amount, decimals = 0 } = req.body;
+    const { projectId, recipientWallet, amount, decimals = 0, verificationHash } = req.body;
     
     if (!projectId || !recipientWallet || !amount) {
       return res.status(400).json({ error: 'Missing required parameters: projectId, recipientWallet, amount' });
     }
     
+    // Validate amount is a positive integer
+    const tokenAmount = parseInt(amount);
+    if (!tokenAmount || tokenAmount <= 0) {
+      return res.status(400).json({ error: 'Invalid token amount. Must be a positive integer.' });
+    }
+    
     const recipient = new PublicKey(recipientWallet);
+    
+    // Fetch project details for verification
+    const { data: project, error: projectError } = await supabase
+      .from('projects')
+      .select('id, title, status, calculated_credits, estimated_credits, credits_issued, mint_address')
+      .eq('id', projectId)
+      .single();
+    
+    if (projectError || !project) {
+      return res.status(404).json({ error: 'Project not found or inaccessible' });
+    }
+    
+    // Verify project hasn't already been minted
+    if (project.credits_issued && project.credits_issued > 0) {
+      return res.status(400).json({ 
+        error: 'Project has already been minted', 
+        details: `${project.credits_issued} credits already issued for this project`
+      });
+    }
+    
+    // Verify project is approved for minting
+    if (project.status !== 'approved' && project.status !== 'credits_calculated') {
+      return res.status(400).json({ 
+        error: 'Project not ready for minting', 
+        details: `Project status: ${project.status}. Must be 'approved' or 'credits_calculated'`
+      });
+    }
+    
+    // Verify token amount matches calculated/estimated credits
+    const expectedCredits = project.calculated_credits || project.estimated_credits;
+    if (!expectedCredits || Math.floor(expectedCredits) !== tokenAmount) {
+      return res.status(400).json({ 
+        error: 'Token amount mismatch', 
+        details: `Requested: ${tokenAmount}, Expected: ${Math.floor(expectedCredits || 0)} from project calculations`
+      });
+    }
 
     // Create mint (or reuse existing project mint)
     const mint = await createMint(
@@ -106,26 +148,66 @@ app.post('/mint', async (req, res) => {
       amountToMint
     );
 
-    // Store on Supabase tokens table  
-    const { error: insertError } = await supabase.from('tokens').insert([{ 
+    // Store on Supabase tokens table with verification data
+    const tokenRecord = {
       mint: mint.toBase58(), 
       project_id: projectId,
       recipient: recipientWallet, 
-      amount, 
+      amount: BigInt(tokenAmount),
+      decimals: decimals,
       minted_tx: sig,
-      created_at: new Date().toISOString() 
-    }]);
+      minted_by: user.id,
+      token_standard: 'SPL',
+      token_symbol: 'CCR',
+      token_name: 'Carbon Credit Token',
+      status: 'active',
+      created_at: new Date().toISOString(),
+      // Verification fields for immutability
+      verification_data: {
+        project_title: project.title,
+        original_calculated_credits: project.calculated_credits,
+        original_estimated_credits: project.estimated_credits,
+        credits_source: project.calculated_credits ? 'calculated' : 'estimated',
+        amount_verified: tokenAmount === Math.floor(expectedCredits),
+        mint_timestamp: new Date().toISOString(),
+        blockchain_network: 'solana-devnet'
+      },
+      is_verified: true,
+      verification_hash: require('crypto').createHash('sha256')
+        .update(`${projectId}-${tokenAmount}-${sig}-${Date.now()}`)
+        .digest('hex')
+    };
+    
+    const { error: insertError } = await supabase.from('tokens').insert([tokenRecord]);
     
     if (insertError) {
       console.error('Database insert error:', insertError);
       // Don't fail the transaction, just log the error
     }
 
-    // Update project with mint address if not already set
-    await supabase
+    // Update projects with mint address and immutability verification
+    const { error: updateError } = await supabase
       .from('projects')
-      .update({ mint_address: mint.toBase58() })
+      .update({ 
+        mint_address: mint.toBase58(),
+        status: 'credits_minted',
+        credits_issued: tokenAmount,
+        minting_transaction: sig,
+        minted_at: new Date().toISOString(),
+        is_immutable: true,
+        verification_data: {
+          original_credits: expectedCredits,
+          minted_amount: tokenAmount,
+          verification_passed: true,
+          mint_transaction: sig,
+          verification_timestamp: new Date().toISOString()
+        }
+      })
       .eq('id', projectId);
+    
+    if (updateError) {
+      console.error('Project update error:', updateError);
+    }
 
     res.json({ 
       mint: mint.toBase58(), 

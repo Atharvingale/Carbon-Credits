@@ -2,6 +2,13 @@ const webpack = require('webpack');
 
 module.exports = function override(config) {
   // Add fallbacks for Node.js modules
+  // Add resolve alias
+  config.resolve.alias = {
+    ...config.resolve.alias,
+    'process/browser': require.resolve('process'),
+    'process/browser.js': require.resolve('process'),
+  };
+  
   config.resolve.fallback = {
     ...config.resolve.fallback,
     crypto: require.resolve('crypto-browserify'),
@@ -30,6 +37,39 @@ module.exports = function override(config) {
       process: 'process',
     }),
   ];
+
+  // Optimize chunks to prevent loading failures
+  if (config.optimization && config.optimization.splitChunks) {
+    config.optimization.splitChunks = {
+      ...config.optimization.splitChunks,
+      chunks: 'all',
+      maxSize: 500000, // 500KB limit per chunk
+      cacheGroups: {
+        ...config.optimization.splitChunks.cacheGroups,
+        vendor: {
+          test: /[\\/]node_modules[\\/]/,
+          name: 'vendors',
+          chunks: 'all',
+          priority: 10,
+          maxSize: 500000
+        },
+        mui: {
+          test: /[\\/]node_modules[\\/]@mui[\\/]/,
+          name: 'mui',
+          chunks: 'all',
+          priority: 15,
+          maxSize: 300000
+        },
+        solana: {
+          test: /[\\/]node_modules[\\/]@solana[\\/]/,
+          name: 'solana',
+          chunks: 'all',
+          priority: 15,
+          maxSize: 300000
+        }
+      }
+    };
+  }
 
   // Ignore source map warnings for node_modules
   config.ignoreWarnings = [

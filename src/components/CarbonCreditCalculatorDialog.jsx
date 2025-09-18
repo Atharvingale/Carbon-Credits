@@ -5,18 +5,18 @@ import {
   DialogContent,
   DialogActions,
   Button,
+  TextField,
   Typography,
   Box,
-  Grid,
-  Paper,
-  Chip,
-  Alert,
   Divider,
-  IconButton,
-  Tooltip,
+  Alert,
   CircularProgress,
+  Grid,
   Card,
-  CardContent
+  CardContent,
+  IconButton,
+  Chip,
+  Paper
 } from '@mui/material';
 import {
   Close as CloseIcon,
@@ -32,11 +32,11 @@ import {
 } from '@mui/icons-material';
 import { 
   calculateProjectCredits, 
-  validateCarbonData, 
-  formatCalculationResults 
+  validateCarbonData
 } from '../utils/carbonCreditCalculator';
+import { normalizeProject, getProjectDisplayValues } from '../utils/projectColumnMapping';
 
-const CarbonCreditCalculatorDialog = ({ 
+const CarbonCreditCalculatorDialog = ({
   open, 
   onClose, 
   project, 
@@ -48,54 +48,69 @@ const CarbonCreditCalculatorDialog = ({
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    const performCalculation = () => {
+      setLoading(true);
+      setError(null);
+      
+      try {
+        if (!project) {
+          setError('No project data available');
+          setLoading(false);
+          return;
+        }
+
+        // Normalize project data
+        const normalizedProject = normalizeProject(project);
+        const displayValues = getProjectDisplayValues(normalizedProject);
+
+        if (!normalizedProject.carbon_data) {
+          setError('No carbon data available for this project');
+          setValidation({ isValid: false, missingFields: ['carbon_data'] });
+          setLoading(false);
+          return;
+        }
+
+        // Validate carbon data
+        const validationResult = validateCarbonData(normalizedProject.carbon_data);
+        setValidation(validationResult);
+
+        if (!validationResult.isValid) {
+          setError(`Missing required data: ${validationResult.missingFields.join(', ')}`);
+          setLoading(false);
+          return;
+        }
+
+        // Get project area with fallback
+        const projectArea = displayValues.project_area || displayValues.area;
+        if (!projectArea || projectArea <= 0) {
+          setError('Project area is required for calculation');
+          setLoading(false);
+          return;
+        }
+
+        // Calculate credits
+        const result = calculateProjectCredits(normalizedProject.carbon_data, projectArea);
+        
+        if (!result) {
+          setError('Unable to calculate carbon credits. Please check the project data.');
+          setLoading(false);
+          return;
+        }
+
+        setCalculation(result);
+      } catch (err) {
+        console.error('Calculation error:', err);
+        setError('Error calculating carbon credits: ' + err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
     if (open && project) {
       performCalculation();
     }
   }, [open, project]);
 
-  const performCalculation = () => {
-    setLoading(true);
-    setError(null);
-    
-    try {
-      if (!project.carbon_data) {
-        setError('No carbon data available for this project');
-        setValidation({ isValid: false, missingFields: ['carbon_data'] });
-        setLoading(false);
-        return;
-      }
-
-      const carbonData = typeof project.carbon_data === 'string' 
-        ? JSON.parse(project.carbon_data) 
-        : project.carbon_data;
-
-      // Validate carbon data
-      const validationResult = validateCarbonData(carbonData);
-      setValidation(validationResult);
-
-      if (!validationResult.isValid) {
-        setError(`Missing required data: ${validationResult.missingFields.join(', ')}`);
-        setLoading(false);
-        return;
-      }
-
-      // Calculate credits
-      const result = calculateProjectCredits(carbonData, project.project_area);
-      
-      if (!result) {
-        setError('Unable to calculate carbon credits. Please check the project data.');
-        setLoading(false);
-        return;
-      }
-
-      setCalculation(result);
-    } catch (err) {
-      console.error('Calculation error:', err);
-      setError('Error calculating carbon credits: ' + err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleMintCredits = () => {
     if (calculation && onCreditCalculated) {
@@ -168,8 +183,8 @@ const CarbonCreditCalculatorDialog = ({
             <Typography variant="h5" sx={{ fontWeight: 600 }}>
               Carbon Credit Calculator
             </Typography>
-            <Typography variant="body2" sx={{ color: '#a0a9ba' }}>
-              {project?.title || 'Project Analysis'}
+            <Typography variant="body2" sx={{ color: '#a0aec0' }}>
+              {project ? getProjectDisplayValues(normalizeProject(project)).title : 'Project Analysis'}
             </Typography>
           </Box>
         </Box>
@@ -234,32 +249,32 @@ const CarbonCreditCalculatorDialog = ({
                 <Grid item xs={12} md={6}>
                   <Typography variant="body2" sx={{ color: '#a0a9ba' }}>Project Area</Typography>
                   <Typography variant="h6" sx={{ color: '#ffffff' }}>
-                    {project.project_area} hectares
+                    {getProjectDisplayValues(normalizeProject(project)).project_area} hectares
                   </Typography>
                 </Grid>
                 <Grid item xs={12} md={6}>
                   <Typography variant="body2" sx={{ color: '#a0a9ba' }}>Ecosystem Type</Typography>
                   <Typography variant="h6" sx={{ color: '#ffffff' }}>
-                    {project.ecosystem_type}
+                    {getProjectDisplayValues(normalizeProject(project)).ecosystem_type}
                   </Typography>
                 </Grid>
                 <Grid item xs={12}>
                   <Typography variant="body2" sx={{ color: '#a0a9ba' }}>Location</Typography>
                   <Typography variant="body1" sx={{ color: '#ffffff' }}>
-                    {project.location}
+                    {getProjectDisplayValues(normalizeProject(project)).location}
                   </Typography>
                 </Grid>
               </Grid>
             </Paper>
 
             {/* Carbon Parameters */}
-            {project.carbon_data && (
+            {project && normalizeProject(project).carbon_data && (
               <Paper sx={{ bgcolor: '#0f1419', border: '1px solid #2d3748', p: 3, mb: 3 }}>
                 <Typography variant="h6" sx={{ color: '#ffffff', mb: 2, fontWeight: 600 }}>
                   Carbon Parameters
                 </Typography>
                 <Grid container spacing={2}>
-                  {getParameterDisplay(project.carbon_data)?.map((param, index) => (
+                  {getParameterDisplay(normalizeProject(project).carbon_data)?.map((param, index) => (
                     <Grid item xs={6} md={3} key={index}>
                       <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
                         <Box sx={{ color: '#00d4aa', mr: 1 }}>{param.icon}</Box>

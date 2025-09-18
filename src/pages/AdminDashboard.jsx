@@ -1,592 +1,792 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
+import { normalizeProject, getProjectDisplayValues, validateForCarbonCalculation } from '../utils/projectColumnMapping';
+import { calculateProjectCredits } from '../utils/carbonCreditCalculator';
 import { 
-  Box, Container, Typography, Paper, Grid, Button, TextField,
-  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
-  Dialog, DialogActions, DialogContent, DialogTitle,
-  CircularProgress, Alert, Card, CardContent, Avatar,
+  Box, Container, Typography, Grid, CircularProgress, Alert, Card, CardContent, Avatar,
   IconButton, Menu, MenuItem, ListItemIcon, ListItemText, Divider,
-  Chip, Select, FormControl,
-  InputLabel, Tooltip, Snackbar
+  Chip, Snackbar,
+  Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
+  Paper, Tabs, Tab, Badge, Skeleton,
+  Tooltip, Stack, AppBar, Toolbar
 } from '@mui/material';
 import {
   AdminPanelSettings as AdminIcon,
-  Dashboard as DashboardIcon,
-  People as PeopleIcon,
-  Assignment as ProjectsIcon,
   TrendingUp as TrendingUpIcon,
   AccountBalance as TokenIcon,
-  Settings as SettingsIcon,
   Logout as LogoutIcon,
   Home as HomeIcon,
-  BarChart as BarChartIcon,
-  CheckCircle as ApprovedIcon,
   Schedule as PendingIcon,
-  Token as MintIcon,
   Gavel as ApprovalIcon,
   SupervisorAccount as UsersIcon,
   Block as BlockIcon,
-  PersonOff as BlockedIcon,
   Edit as EditIcon,
-  Delete as DeleteIcon,
-  Visibility as ViewIcon,
-  AttachMoney as MoneyIcon,
   History as HistoryIcon,
-  Security as SecurityIcon,
-  Warning as WarningIcon,
-  Info as InfoIcon,
-  Add as AddIcon,
-  Search as SearchIcon,
-  FilterList as FilterIcon,
-  Refresh as RefreshIcon,
-  Person as PersonIcon,
   Check as CheckIcon,
-  Close as CloseIcon,
   Token,
-  Calculate as CalculateIcon
+  Calculate as CalculateIcon,
+  Refresh as RefreshIcon,
+  Dashboard as DashboardIcon,
+  Analytics as AnalyticsIcon,
+  Visibility as ViewIcon,
+  MoreVert as MoreVertIcon,
+  Warning as WarningIcon,
+  CheckCircle as CheckCircleIcon,
+  Error as ErrorIcon,
+  Info as InfoIcon
 } from '@mui/icons-material';
+import ProjectDetailDialog from '../components/ProjectDetailDialog';
 import CarbonCreditCalculatorDialog from '../components/CarbonCreditCalculatorDialog';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
   
   // Main state
-  const [user, setUser] = useState(null);
+  // const [user, setUser] = useState(null); // Removed - gets user info dynamically
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [anchorEl, setAnchorEl] = useState(null);
-  // Removed tabValue as we're using card-based layout
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [currentTab, setCurrentTab] = useState(0);
+  const [refreshing, setRefreshing] = useState(false);
   
   // Data state
+  const [dashboardStats, setDashboardStats] = useState({
+    totalUsers: 0,
+    totalProjects: 0,
+    pendingProjects: 0,
+    approvedProjects: 0,
+    rejectedProjects: 0,
+    totalTokens: 0,
+    totalCredits: 0,
+    recentActivity: 0
+  });
+  
   const [allUsers, setAllUsers] = useState([]);
   const [allProjects, setAllProjects] = useState([]);
   const [allTokens, setAllTokens] = useState([]);
   const [adminLogs, setAdminLogs] = useState([]);
   
-  // Dialog states
-  const [openMintDialog, setOpenMintDialog] = useState(false);
-  const [openEditUserDialog, setOpenEditUserDialog] = useState(false);
-  const [openEditProjectDialog, setOpenEditProjectDialog] = useState(false);
-  const [openBlockUserDialog, setOpenBlockUserDialog] = useState(false);
-  const [openDeleteDialog, setOpenDeleteDialog] = useState(false);
-  const [calculatorOpen, setCalculatorOpen] = useState(false);
-  
-  // Selected items
-  const [selectedUser, setSelectedUser] = useState(null);
-  const [selectedProject, setSelectedProject] = useState(null);
-  const [selectedToken, setSelectedToken] = useState(null);
-  const [calculationProject, setCalculationProject] = useState(null);
-  
-  // Form states
-  const [recipientWallet, setRecipientWallet] = useState('');
-  const [mintAmount, setMintAmount] = useState('');
-  const [blockReason, setBlockReason] = useState('');
-  const [editUserData, setEditUserData] = useState({});
-  const [editProjectData, setEditProjectData] = useState({});
-  
-  // Filter and search states
-  const [userFilter, setUserFilter] = useState('all');
-  const [projectFilter, setProjectFilter] = useState('all');
-  const [searchTerm, setSearchTerm] = useState('');
-  
   // Loading states
-  const [mintLoading, setMintLoading] = useState(false);
-  const [blockLoading, setBlockLoading] = useState(false);
-  const [editLoading, setEditLoading] = useState(false);
+  const [dataLoading, setDataLoading] = useState({
+    users: false,
+    projects: false,
+    tokens: false,
+    logs: false,
+    stats: false
+  });
   
-  // Success/Error states
-  const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'info' });
+  // Error states
+  const [dataErrors, setDataErrors] = useState({
+    users: null,
+    projects: null,
+    tokens: null,
+    logs: null,
+    stats: null
+  });
+  
+  // UI states
+  const [snackbar, setSnackbar] = useState({ 
+    open: false, 
+    message: '', 
+    severity: 'info' 
+  });
+  
+  // Dialog states
+  const [projectDetailDialog, setProjectDetailDialog] = useState({ open: false, project: null });
+  const [calculatorDialog, setCalculatorDialog] = useState({ open: false, project: null });
+  const [selectedProject, setSelectedProject] = useState(null);
 
-  // Show snackbar helper
-  const showSnackbar = (message, severity = 'info') => {
+  // Utility functions
+  const showSnackbar = useCallback((message, severity = 'info') => {
     setSnackbar({ open: true, message, severity });
-  };
+  }, []);
+  
+  const closeSnackbar = useCallback(() => {
+    setSnackbar(prev => ({ ...prev, open: false }));
+  }, []);
+  
+  const setLoadingState = useCallback((section, isLoading) => {
+    setDataLoading(prev => ({ ...prev, [section]: isLoading }));
+  }, []);
+  
+  const setErrorState = useCallback((section, error) => {
+    setDataErrors(prev => ({ ...prev, [section]: error }));
+  }, []);
+  
+  const formatDate = useCallback((dateString) => {
+    if (!dateString) return 'N/A';
+    return new Date(dateString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }, []);
 
-  // Check if user is authenticated and is admin
-  useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+  // Authentication check
+  const checkAuthentication = useCallback(async () => {
+    try {
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      
+      if (sessionError) {
+        console.error('Session error:', sessionError);
+        showSnackbar('Authentication error occurred', 'error');
         navigate('/login');
-        return;
+        return false;
       }
       
-      setUser(session.user);
+      if (!session) {
+        navigate('/login');
+        return false;
+      }
       
-      // Check if user is admin
-      const { data: profile } = await supabase
+      // User session is valid - no need to store in state
+      
+      // Check admin role
+      const { data: profile, error: profileError } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, full_name, email')
         .eq('id', session.user.id)
         .single();
       
-      if (profile?.role !== 'admin') {
-        navigate('/dashboard');
-        return;
+      if (profileError) {
+        console.error('Profile fetch error:', profileError);
+        showSnackbar('Failed to verify admin access', 'error');
+        return false;
       }
       
-      setIsAdmin(true);
-      setLoading(false);
+      if (profile?.role !== 'admin') {
+        showSnackbar('Access denied. Admin privileges required.', 'error');
+        navigate('/dashboard');
+        return false;
+      }
       
-      // Fetch all dashboard data
-      fetchDashboardData();
+      return true;
+    } catch (error) {
+      console.error('Authentication check failed:', error);
+      showSnackbar('Authentication failed', 'error');
+      navigate('/login');
+      return false;
+    }
+  }, [navigate, showSnackbar]);
+
+  // Individual data fetching functions
+  const fetchUsers = useCallback(async () => {
+    setLoadingState('users', true);
+    setErrorState('users', null);
+    
+    try {
+      console.log('👥 Fetching users...');
+      const { data, error } = await supabase
+        .from('profiles')
+        .select(`
+          id, email, full_name, role, organization_name, organization_type,
+          phone_number, is_blocked, block_reason, blocked_at,
+          is_verified, verification_date, created_at, updated_at
+        `)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      console.log(`✅ Loaded ${data?.length || 0} users`);
+      setAllUsers(data || []);
+      
+    } catch (error) {
+      console.error('❌ Users fetch error:', error);
+      const errorMessage = error.code === '42P01' 
+        ? 'Profiles table not found. Please run database setup.'
+        : `Failed to fetch users: ${error.message}`;
+      setErrorState('users', errorMessage);
+      setAllUsers([]);
+    } finally {
+      setLoadingState('users', false);
+    }
+  }, [setLoadingState, setErrorState]);
+
+  const fetchProjects = useCallback(async () => {
+    setLoadingState('projects', true);
+    setErrorState('projects', null);
+    
+    try {
+      console.log('📁 Fetching projects...');
+      const { data, error } = await supabase
+        .from('projects')
+        .select(`
+          id, title, name, description, location, project_type, ecosystem_type,
+          area, project_area, estimated_credits, calculated_credits, 
+          status, review_notes, carbon_data, methodology, verification_standard,
+          user_id, submitted_by_user, reviewed_by, reviewed_at, 
+          approved_by, approved_at, calculation_timestamp, verification_date,
+          organization_name, organization_email, contact_phone, contact_email,
+          wallet_address, mint_address, credits_issued, credits_retired,
+          project_start_date, project_end_date, tags,
+          created_at, updated_at,
+          profiles:user_id (
+            full_name, email, wallet_address
+          ),
+          reviewer:reviewed_by (
+            full_name, email
+          ),
+          approver:approved_by (
+            full_name, email
+          )
+        `)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      console.log(`✅ Loaded ${data?.length || 0} projects`);
+      
+      // Normalize projects and calculate estimated credits where missing
+      const normalizedProjects = (data || []).map(project => {
+        const normalized = normalizeProject(project);
+        
+        // Calculate estimated credits if missing but carbon data is available
+        if (!normalized.estimated_credits && normalized.carbon_data && normalized.project_area) {
+          const validation = validateForCarbonCalculation(normalized);
+          if (validation.isValid) {
+            try {
+              const calculation = calculateProjectCredits(normalized.carbon_data, normalized.project_area);
+              if (calculation) {
+                normalized.estimated_credits = calculation.totalCarbonCredits;
+                console.log(`🧮 Calculated estimated credits for project ${normalized.title}: ${calculation.totalCarbonCredits}`);
+                
+                // Optionally update the database with estimated credits
+                // We'll do this asynchronously without blocking the UI
+                supabase
+                  .from('projects')
+                  .update({ estimated_credits: calculation.totalCarbonCredits })
+                  .eq('id', normalized.id)
+                  .then(({ error }) => {
+                    if (error) console.warn('Failed to update estimated credits:', error);
+                  });
+              }
+            } catch (calcError) {
+              console.warn(`Failed to calculate estimated credits for project ${normalized.id}:`, calcError);
+            }
+          }
+        }
+        
+        return getProjectDisplayValues(normalized);
+      });
+      
+      setAllProjects(normalizedProjects);
+      
+    } catch (error) {
+      console.error('❌ Projects fetch error:', error);
+      const errorMessage = error.code === '42P01'
+        ? 'Projects table not found. Please run database setup and migration.'
+        : `Failed to fetch projects: ${error.message}`;
+      setErrorState('projects', errorMessage);
+      setAllProjects([]);
+    } finally {
+      setLoadingState('projects', false);
+    }
+  }, [setLoadingState, setErrorState]);
+
+  const fetchTokens = useCallback(async () => {
+    setLoadingState('tokens', true);
+    setErrorState('tokens', null);
+    
+    try {
+      console.log('🪙 Fetching tokens...');
+      const { data, error } = await supabase
+        .from('tokens')
+        .select(`
+          id, mint, project_id, recipient, amount, decimals,
+          minted_tx, token_standard, token_symbol, token_name,
+          status, retired_at, retirement_reason, created_at,
+          projects:project_id (
+            title, name, description
+          ),
+          minter:minted_by (
+            full_name, email
+          ),
+          retiree:retired_by (
+            full_name, email
+          )
+        `)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      
+      console.log(`✅ Loaded ${data?.length || 0} tokens`);
+      setAllTokens(data || []);
+      
+    } catch (error) {
+      console.error('❌ Tokens fetch error:', error);
+      const errorMessage = error.code === '42P01'
+        ? 'Tokens table not found. Token management unavailable.'
+        : `Failed to fetch tokens: ${error.message}`;
+      setErrorState('tokens', errorMessage);
+      setAllTokens([]);
+    } finally {
+      setLoadingState('tokens', false);
+    }
+  }, [setLoadingState, setErrorState]);
+
+  const fetchAdminLogs = useCallback(async () => {
+    setLoadingState('logs', true);
+    setErrorState('logs', null);
+    
+    try {
+      console.log('📈 Fetching admin logs...');
+      const { data, error } = await supabase
+        .from('admin_logs')
+        .select(`
+          id, admin_id, action, target_type, target_id,
+          details, created_at,
+          profiles:admin_id (
+            full_name, email
+          )
+        `)
+        .order('created_at', { ascending: false })
+        .limit(100);
+      
+      if (error) throw error;
+      
+      console.log(`✅ Loaded ${data?.length || 0} admin logs`);
+      setAdminLogs(data || []);
+      
+    } catch (error) {
+      console.error('❌ Admin logs fetch error:', error);
+      const errorMessage = error.code === '42P01'
+        ? 'Admin logs table not found. Activity logging unavailable.'
+        : `Failed to fetch admin logs: ${error.message}`;
+      setErrorState('logs', errorMessage);
+      setAdminLogs([]);
+    } finally {
+      setLoadingState('logs', false);
+    }
+  }, [setLoadingState, setErrorState]);
+  
+  // Fetch dashboard statistics
+  const fetchDashboardStats = useCallback(async () => {
+    setLoadingState('stats', true);
+    setErrorState('stats', null);
+    
+    try {
+      console.log('📊 Calculating dashboard statistics...');
+      
+      // Calculate stats from existing data or fetch fresh counts
+      const statsPromises = [
+        // User counts
+        supabase.from('profiles').select('role', { count: 'exact' }),
+        // Project counts by status
+        supabase.from('projects').select('status', { count: 'exact' }),
+        supabase.from('projects').select('status').eq('status', 'pending'),
+        supabase.from('projects').select('status').eq('status', 'approved'),
+        supabase.from('projects').select('status').eq('status', 'rejected'),
+        // Token statistics
+        supabase.from('tokens').select('amount', { count: 'exact' }),
+        supabase.from('tokens').select('amount'),
+        // Recent activity count
+        supabase.from('admin_logs').select('id', { count: 'exact' })
+          .gte('created_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString())
+      ];
+      
+      const results = await Promise.allSettled(statsPromises);
+      
+      // Process results safely
+      const totalUsers = results[0].status === 'fulfilled' ? results[0].value.count || 0 : 0;
+      const totalProjects = results[1].status === 'fulfilled' ? results[1].value.count || 0 : 0;
+      const pendingProjects = results[2].status === 'fulfilled' ? results[2].value.data?.length || 0 : 0;
+      const approvedProjects = results[3].status === 'fulfilled' ? results[3].value.data?.length || 0 : 0;
+      const rejectedProjects = results[4].status === 'fulfilled' ? results[4].value.data?.length || 0 : 0;
+      const totalTokens = results[5].status === 'fulfilled' ? results[5].value.count || 0 : 0;
+      const tokenAmounts = results[6].status === 'fulfilled' ? results[6].value.data || [] : [];
+      const totalCredits = tokenAmounts.reduce((sum, token) => sum + (token.amount || 0), 0);
+      const recentActivity = results[7].status === 'fulfilled' ? results[7].value.count || 0 : 0;
+      
+      const stats = {
+        totalUsers,
+        totalProjects,
+        pendingProjects,
+        approvedProjects,
+        rejectedProjects,
+        totalTokens,
+        totalCredits,
+        recentActivity
+      };
+      
+      console.log('✅ Dashboard statistics calculated:', stats);
+      setDashboardStats(stats);
+      
+    } catch (error) {
+      console.error('❌ Dashboard stats fetch error:', error);
+      setErrorState('stats', `Failed to calculate statistics: ${error.message}`);
+    } finally {
+      setLoadingState('stats', false);
+    }
+  }, [setLoadingState, setErrorState]);
+
+  // Main data fetching function
+  const fetchAllData = useCallback(async () => {
+    console.log('🔄 Fetching all admin dashboard data...');
+    
+    // Fetch all data in parallel for better performance
+    const dataPromises = [
+      fetchUsers(),
+      fetchProjects(),
+      fetchTokens(),
+      fetchAdminLogs(),
+      fetchDashboardStats()
+    ];
+    
+    try {
+      await Promise.allSettled(dataPromises);
+      console.log('✅ All data fetching completed');
+    } catch (error) {
+      console.error('❌ Error during data fetching:', error);
+      showSnackbar('Some data could not be loaded', 'warning');
+    }
+  }, [fetchUsers, fetchProjects, fetchTokens, fetchAdminLogs, fetchDashboardStats, showSnackbar]);
+  
+  // Refresh all data
+  const refreshAllData = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchAllData();
+      showSnackbar('Dashboard refreshed successfully', 'success');
+    } catch (error) {
+      console.error('Refresh failed:', error);
+      showSnackbar('Failed to refresh dashboard', 'error');
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchAllData, showSnackbar]);
+
+  // Initialize dashboard
+  useEffect(() => {
+    const initializeDashboard = async () => {
+      setLoading(true);
+      const isAuthenticated = await checkAuthentication();
+      
+      if (isAuthenticated) {
+        await fetchAllData();
+      }
+      
+      setLoading(false);
     };
     
-    checkUser();
-  }, [navigate]);
-
-  const fetchDashboardData = async () => {
-    try {
-      console.log('🔍 Admin Dashboard: Fetching dashboard data...');
-      
-      // Fetch all users with detailed info
-      const { data: usersData, error: usersError } = await supabase
-        .from('profiles')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (usersError) throw usersError;
-      console.log('✅ Admin Dashboard: Users loaded:', usersData?.length);
-      setAllUsers(usersData || []);
-      
-      // Fetch all projects from project_submissions table
-      const { data: projectsData, error: projectsError } = await supabase
-        .from('project_submissions')
-        .select('*')
-        .order('created_at', { ascending: false });
-      
-      if (projectsError) throw projectsError;
-      console.log('✅ Admin Dashboard: Projects loaded:', projectsData?.length);
-      console.log('✅ Admin Dashboard: First project:', projectsData?.[0]);
-      setAllProjects(projectsData || []);
-      
-      // Try to fetch tokens (may not exist)
-      try {
-        const { data: tokensData } = await supabase
-          .from('tokens')
-          .select('*')
-          .order('created_at', { ascending: false });
-        setAllTokens(tokensData || []);
-      } catch (tokensError) {
-        console.log('Tokens table not available:', tokensError.message);
-        setAllTokens([]);
-      }
-      
-      // Try to fetch admin logs (may not exist)
-      try {
-        const { data: logsData } = await supabase
-          .from('admin_logs')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(100);
-        setAdminLogs(logsData || []);
-      } catch (logsError) {
-        console.log('Admin logs table not available:', logsError.message);
-        setAdminLogs([]);
-      }
-      
-    } catch (err) {
-      console.error('Error fetching dashboard data:', err);
-      setError('Failed to fetch dashboard data. Please try again.');
-    }
-  };
-
-  // Log admin actions
-  const logAdminAction = async (action, targetType, targetId, details = '') => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-
-      await supabase.from('admin_logs').insert({
-        admin_id: session.user.id,
-        action,
-        target_type: targetType,
-        target_id: targetId,
-        details,
-        created_at: new Date().toISOString()
-      });
-    } catch (err) {
-      console.error('Error logging admin action:', err);
-    }
-  };
-
-  // User Management Functions
-  const handleBlockUser = async (userId, reason = '') => {
-    setBlockLoading(true);
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ 
-          is_blocked: true, 
-          block_reason: reason,
-          blocked_at: new Date().toISOString()
-        })
-        .eq('id', userId);
-      
-      if (error) throw error;
-      
-      await logAdminAction('block_user', 'user', userId, reason);
-      showSnackbar('User blocked successfully', 'success');
-      setOpenBlockUserDialog(false);
-      fetchDashboardData();
-    } catch (err) {
-      console.error('Error blocking user:', err);
-      showSnackbar('Failed to block user', 'error');
-    } finally {
-      setBlockLoading(false);
-    }
-  };
-
-  const handleUnblockUser = async (userId) => {
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ 
-          is_blocked: false, 
-          block_reason: null,
-          blocked_at: null
-        })
-        .eq('id', userId);
-      
-      if (error) throw error;
-      
-      await logAdminAction('unblock_user', 'user', userId);
-      showSnackbar('User unblocked successfully', 'success');
-      fetchDashboardData();
-    } catch (err) {
-      console.error('Error unblocking user:', err);
-      showSnackbar('Failed to unblock user', 'error');
-    }
-  };
-
-  const handleEditUser = async (userId, userData) => {
-    setEditLoading(true);
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update(userData)
-        .eq('id', userId);
-      
-      if (error) throw error;
-      
-      await logAdminAction('edit_user', 'user', userId, 
-        `Updated: ${Object.keys(userData).join(', ')}`);
-      showSnackbar('User updated successfully', 'success');
-      setOpenEditUserDialog(false);
-      fetchDashboardData();
-    } catch (err) {
-      console.error('Error updating user:', err);
-      showSnackbar('Failed to update user', 'error');
-    } finally {
-      setEditLoading(false);
-    }
-  };
-
-  const handleDeleteUser = async (userId) => {
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .delete()
-        .eq('id', userId);
-      
-      if (error) throw error;
-      
-      await logAdminAction('delete_user', 'user', userId);
-      showSnackbar('User deleted successfully', 'success');
-      setOpenDeleteDialog(false);
-      fetchDashboardData();
-    } catch (err) {
-      console.error('Error deleting user:', err);
-      showSnackbar('Failed to delete user', 'error');
-    }
-  };
-
-  // Project Management Functions
-  const handleApproveProject = async (projectId) => {
-    try {
-      const { error } = await supabase
-        .from('projects')
-        .update({ status: 'approved' })
-        .eq('id', projectId);
-      
-      if (error) throw error;
-      
-      await logAdminAction('approve_project', 'project', projectId);
-      showSnackbar('Project approved successfully', 'success');
-      fetchDashboardData();
-    } catch (err) {
-      console.error('Error approving project:', err);
-      showSnackbar('Failed to approve project', 'error');
-    }
-  };
-
-  const handleRejectProject = async (projectId, reason = '') => {
-    try {
-      const { error } = await supabase
-        .from('projects')
-        .update({ 
-          status: 'rejected',
-          rejection_reason: reason
-        })
-        .eq('id', projectId);
-      
-      if (error) throw error;
-      
-      await logAdminAction('reject_project', 'project', projectId, reason);
-      showSnackbar('Project rejected', 'success');
-      fetchDashboardData();
-    } catch (err) {
-      console.error('Error rejecting project:', err);
-      showSnackbar('Failed to reject project', 'error');
-    }
-  };
-
-  const handleEditProject = async (projectId, projectData) => {
-    setEditLoading(true);
-    try {
-      const { error } = await supabase
-        .from('projects')
-        .update(projectData)
-        .eq('id', projectId);
-      
-      if (error) throw error;
-      
-      await logAdminAction('edit_project', 'project', projectId,
-        `Updated: ${Object.keys(projectData).join(', ')}`);
-      showSnackbar('Project updated successfully', 'success');
-      setOpenEditProjectDialog(false);
-      fetchDashboardData();
-    } catch (err) {
-      console.error('Error updating project:', err);
-      showSnackbar('Failed to update project', 'error');
-    } finally {
-      setEditLoading(false);
-    }
-  };
-
-  const handleDeleteProject = async (projectId) => {
-    try {
-      const { error } = await supabase
-        .from('projects')
-        .delete()
-        .eq('id', projectId);
-      
-      if (error) throw error;
-      
-      await logAdminAction('delete_project', 'project', projectId);
-      showSnackbar('Project deleted successfully', 'success');
-      setOpenDeleteDialog(false);
-      fetchDashboardData();
-    } catch (err) {
-      console.error('Error deleting project:', err);
-      showSnackbar('Failed to delete project', 'error');
-    }
-  };
-
-  const handleOpenMintDialog = (project) => {
-    setSelectedProject(project);
-    setRecipientWallet(project?.wallet_address || '');
-    setMintAmount('');
-    setOpenMintDialog(true);
-  };
-
-  const handleCloseMintDialog = () => {
-    setOpenMintDialog(false);
-    setSelectedProject(null);
-  };
-
-  // Token Management Functions
-  const handleMintTokens = async () => {
-    if (!selectedProject || !recipientWallet || !mintAmount) {
-      showSnackbar('Please fill in all fields', 'error');
-      return;
-    }
-    
-    setMintLoading(true);
-    
-    try {
-      // Insert token record directly into database
-      const { data: { session } } = await supabase.auth.getSession();
-      const { error } = await supabase
-        .from('tokens')
-        .insert({
-          user_id: session.user.id,
-          project_id: selectedProject.id,
-          amount: parseInt(mintAmount, 10),
-          wallet_address: recipientWallet,
-          transaction_type: 'mint',
-          status: 'completed',
-          transaction_hash: 'admin_mint_' + Date.now() // Placeholder for actual blockchain tx
-        });
-      
-      if (error) throw error;
-      
-      await logAdminAction('mint_tokens', 'token', selectedProject.id, 
-        `Minted ${mintAmount} tokens to ${recipientWallet}`);
-      showSnackbar(`Successfully minted ${mintAmount} tokens`, 'success');
-      setOpenMintDialog(false);
-      fetchDashboardData();
-    } catch (err) {
-      console.error('Error minting tokens:', err);
-      showSnackbar('Failed to mint tokens', 'error');
-    } finally {
-      setMintLoading(false);
-    }
-  };
-
-  const handleBurnTokens = async (tokenId, amount) => {
-    try {
-      const { error } = await supabase
-        .from('tokens')
-        .update({ 
-          status: 'burned',
-          burned_at: new Date().toISOString()
-        })
-        .eq('id', tokenId);
-      
-      if (error) throw error;
-      
-      await logAdminAction('burn_tokens', 'token', tokenId, 
-        `Burned ${amount} tokens`);
-      showSnackbar('Tokens burned successfully', 'success');
-      fetchDashboardData();
-    } catch (err) {
-      console.error('Error burning tokens:', err);
-      showSnackbar('Failed to burn tokens', 'error');
-    }
-  };
-
-  // Dialog handlers
-  const handleOpenBlockDialog = (user) => {
-    setSelectedUser(user);
-    setBlockReason('');
-    setOpenBlockUserDialog(true);
-  };
-
-  const handleOpenEditUserDialog = (user) => {
-    setSelectedUser(user);
-    setEditUserData({
-      full_name: user.full_name || '',
-      email: user.email || '',
-      role: user.role || 'user',
-      wallet_address: user.wallet_address || ''
-    });
-    setOpenEditUserDialog(true);
-  };
-
-  const handleOpenEditProjectDialog = (project) => {
-    setSelectedProject(project);
-    setEditProjectData({
-      title: project.title || '',
-      description: project.description || '',
-      location: project.location || '',
-      estimated_credits: project.estimated_credits || '',
-      status: project.status || 'pending'
-    });
-    setOpenEditProjectDialog(true);
-  };
-
-  const handleOpenDeleteDialog = (type, item) => {
-    if (type === 'user') {
-      setSelectedUser(item);
-    } else if (type === 'project') {
-      setSelectedProject(item);
-    }
-    setOpenDeleteDialog(true);
-  };
-
-  // Removed handleTabChange - using card-based layout
-
-  // Menu handlers
-  const handleMenuClick = (event) => {
-    setAnchorEl(event.currentTarget);
-  };
-
-  const handleMenuClose = () => {
-    setAnchorEl(null);
-  };
+    initializeDashboard();
+  }, [checkAuthentication, fetchAllData]);
 
   // Navigation handlers
-  const handleNavigation = (path) => {
-    navigate(path);
-    handleMenuClose();
-  };
-
-  // Logout function
-  const handleLogout = async () => {
+  const handleLogout = useCallback(async () => {
     try {
       await supabase.auth.signOut();
       navigate('/login');
     } catch (error) {
       console.error('Error logging out:', error);
+      showSnackbar('Error logging out', 'error');
     }
-    handleMenuClose();
-  };
+  }, [navigate, showSnackbar]);
 
-  // Carbon Credit Calculation Functions
-  const handleCalculateCredits = (project) => {
-    setCalculationProject(project);
-    setCalculatorOpen(true);
-  };
+  const handleMenuClose = useCallback(() => {
+    setAnchorEl(null);
+  }, []);
 
-  const handleCreditCalculated = async (creditAmount, calculationData) => {
+  const handleTabChange = useCallback((event, newValue) => {
+    setCurrentTab(newValue);
+  }, []);
+
+  // Project action handlers
+  const handleProjectReview = useCallback((project) => {
+    console.log('Opening project review for:', project.title);
+    setProjectDetailDialog({ open: true, project });
+  }, []);
+
+  const handleProjectCalculate = useCallback((project) => {
+    console.log('Opening calculator for:', project.title);
+    setCalculatorDialog({ open: true, project });
+  }, []);
+
+  const handleProjectApprove = useCallback(async (project) => {
     try {
-      // Update project with calculated credits
-      const { error: updateError } = await supabase
-        .from('project_submissions')
-        .update({ 
-          status: 'credits_calculated',
-          calculated_credits: creditAmount,
-          calculation_data: calculationData,
-          calculation_timestamp: new Date().toISOString()
-        })
-        .eq('id', calculationProject.id);
-
-      if (updateError) throw updateError;
-
-      showSnackbar(`Successfully calculated ${creditAmount} carbon credits for ${calculationProject.title}`, 'success');
-      fetchDashboardData(); // Refresh the projects list
-    } catch (error) {
-      console.error('Error updating project:', error);
-      showSnackbar('Error updating project with calculated credits', 'error');
-    }
-  };
-
-  const hasValidCarbonData = (project) => {
-    try {
-      if (!project.carbon_data) return false;
-      const data = typeof project.carbon_data === 'string' 
-        ? JSON.parse(project.carbon_data) 
-        : project.carbon_data;
+      setLoadingState('projects', true);
       
-      // Check for required fields
-      return data.bulk_density && data.depth && data.carbon_percent && 
-             data.agb_biomass && data.bgb_biomass;
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      const { error } = await supabase
+        .from('projects')
+        .update({ 
+          status: 'approved', 
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: user?.id
+        })
+        .eq('id', project.id);
+      
+      if (error) throw error;
+      
+      // Log admin action
+      await supabase.from('admin_logs').insert([{
+        admin_id: user?.id,
+        action: 'project_approved',
+        target_type: 'project',
+        target_id: project.id,
+        details: `Approved project: ${project.title}`
+      }]);
+      
+      showSnackbar(`Project "${project.title}" approved successfully`, 'success');
+      await fetchProjects(); // Refresh projects
+      
     } catch (error) {
-      return false;
+      console.error('Error approving project:', error);
+      showSnackbar(`Failed to approve project: ${error.message}`, 'error');
+    } finally {
+      setLoadingState('projects', false);
     }
-  };
+  }, [fetchProjects, showSnackbar, setLoadingState]);
 
-  // Helper functions
-  const getStatusColor = (status) => {
-    switch (status?.toLowerCase()) {
-      case 'approved': return 'success';
-      case 'pending': return 'warning';
-      case 'rejected': return 'error';
-      default: return 'default';
+  const handleCreditCalculated = useCallback(async (credits, calculationDetails) => {
+    try {
+      if (!selectedProject) return;
+      
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      const { error } = await supabase
+        .from('projects')
+        .update({ 
+          calculated_credits: credits,
+          status: 'credits_calculated',
+          calculation_data: calculationDetails,
+          reviewed_at: new Date().toISOString(),
+          reviewed_by: user?.id
+        })
+        .eq('id', selectedProject.id);
+      
+      if (error) throw error;
+      
+      // Log admin action
+      await supabase.from('admin_logs').insert([{
+        admin_id: user?.id,
+        action: 'credits_calculated',
+        target_type: 'project',
+        target_id: selectedProject.id,
+        details: `Calculated ${credits} credits for project: ${selectedProject.title}`
+      }]);
+      
+      showSnackbar(`${credits} credits calculated successfully`, 'success');
+      await fetchProjects(); // Refresh projects
+      
+    } catch (error) {
+      console.error('Error updating calculated credits:', error);
+      showSnackbar(`Failed to update credits: ${error.message}`, 'error');
     }
-  };
+  }, [selectedProject, fetchProjects, showSnackbar]);
 
-  const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
+  const handleDialogClose = useCallback((dialogType) => {
+    if (dialogType === 'detail') {
+      setProjectDetailDialog({ open: false, project: null });
+    } else if (dialogType === 'calculator') {
+      setCalculatorDialog({ open: false, project: null });
+      setSelectedProject(null);
+    }
+  }, []);
 
+  const handleProjectUpdate = useCallback(async (updatedProject) => {
+    // Update the project in the local state
+    setAllProjects(prev => 
+      prev.map(p => p.id === updatedProject.id ? updatedProject : p)
+    );
+    
+    // Refresh data to ensure consistency
+    await fetchProjects();
+    showSnackbar('Project updated successfully', 'success');
+  }, [fetchProjects, showSnackbar]);
+
+  // Minting functionality
+  const handleMintTokens = useCallback(async (project) => {
+    try {
+      setLoadingState('projects', true);
+      
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        showSnackbar('Authentication required for minting', 'error');
+        return;
+      }
+      
+      // Check if user has provided wallet address (check profile first, then project)
+      // Handle case where profiles might be null or undefined
+      const userWalletAddress = (project.profiles && project.profiles.wallet_address) || project.wallet_address;
+      if (!userWalletAddress) {
+        showSnackbar('Cannot mint tokens: User has not connected a wallet address. Please ask the user to connect their wallet in their profile.', 'error');
+        return;
+      }
+      
+      // Validate wallet address format (basic Solana address validation)
+      const walletRegex = /^[A-Za-z0-9]{32,44}$/;
+      if (!walletRegex.test(userWalletAddress)) {
+        showSnackbar('Invalid wallet address format. Please verify the wallet address in the user profile.', 'error');
+        return;
+      }
+      
+      const recipientWallet = userWalletAddress;
+      
+      // Use calculated credits (prioritize calculated over estimated for accuracy)
+      let creditsToMint;
+      let creditSource;
+      
+      if (project.calculated_credits && project.calculated_credits > 0) {
+        creditsToMint = project.calculated_credits;
+        creditSource = 'calculated';
+      } else if (project.estimated_credits && project.estimated_credits > 0) {
+        creditsToMint = project.estimated_credits;
+        creditSource = 'estimated';
+        
+        // Warn admin if using estimated instead of calculated
+        const useEstimated = window.confirm(
+          `⚠️ WARNING: Using ESTIMATED credits instead of calculated credits.\n\n` +
+          `Estimated: ${parseInt(project.estimated_credits).toLocaleString()} CCR\n\n` +
+          `For data authenticity, it's recommended to calculate exact credits first.\n\n` +
+          `Continue with estimated credits?`
+        );
+        
+        if (!useEstimated) {
+          showSnackbar('Minting cancelled. Please calculate exact credits first.', 'info');
+          return;
+        }
+      } else {
+        showSnackbar('No credits available for minting. Please calculate credits first.', 'error');
+        return;
+      }
+      
+      // Ensure whole number of credits (no fractional tokens)
+      const exactCredits = Math.floor(creditsToMint);
+      if (exactCredits !== creditsToMint) {
+        const proceedFractional = window.confirm(
+          `⚠️ PRECISION WARNING: Credits contain decimal places.\n\n` +
+          `Original: ${creditsToMint} CCR\n` +
+          `Will mint: ${exactCredits} CCR (rounded down)\n\n` +
+          `Continue with ${exactCredits} tokens?`
+        );
+        
+        if (!proceedFractional) {
+          showSnackbar('Minting cancelled due to fractional credits.', 'info');
+          return;
+        }
+        
+        creditsToMint = exactCredits;
+      }
+      
+      // Show detailed confirmation dialog with all critical information
+      const confirmed = window.confirm(
+        `🔒 IMMUTABLE TOKEN MINTING CONFIRMATION\n\n` +
+        `Project: "${project.title}"\n` +
+        `Credits to Mint: ${parseInt(creditsToMint).toLocaleString()} CCR\n` +
+        `Credit Source: ${creditSource.toUpperCase()}\n` +
+        `Recipient: ${recipientWallet}\n\n` +
+        `⚠️ IMPORTANT: This action is IRREVERSIBLE\n` +
+        `Once minted, tokens cannot be modified or recalled.\n\n` +
+        `Confirm minting ${parseInt(creditsToMint).toLocaleString()} tokens?`
+      );
+      
+      if (!confirmed) {
+        showSnackbar('Token minting cancelled', 'info');
+        return;
+      }
+      
+      showSnackbar(`Minting ${creditsToMint} credits...`, 'info');
+      
+      // Create verification hash for authenticity
+      const apiVerificationData = {
+        projectId: project.id,
+        projectTitle: project.title,
+        creditsToMint: parseInt(creditsToMint),
+        creditSource: creditSource,
+        timestamp: Date.now()
+      };
+      
+      // Call minting API with verification data
+      const response = await fetch('http://localhost:3001/mint', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${session.access_token}`
+        },
+        body: JSON.stringify({
+          projectId: project.id,
+          recipientWallet: recipientWallet,
+          amount: creditsToMint.toString(),
+          decimals: 0,
+          verificationData: apiVerificationData
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const mintResult = await response.json();
+      
+      // Create immutable verification record
+      const mintingVerificationData = {
+        original_calculated_credits: project.calculated_credits,
+        original_estimated_credits: project.estimated_credits,
+        credits_source: creditSource,
+        credits_requested: parseInt(creditsToMint),
+        credits_minted: parseInt(creditsToMint),
+        mint_transaction: mintResult.tx,
+        mint_address: mintResult.mint,
+        recipient_wallet: recipientWallet,
+        verification_timestamp: new Date().toISOString()
+        // verification_admin will be set after getting user info
+      };
+      
+      // Get user info for verification and logging
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      // Add admin info to verification data
+      mintingVerificationData.verification_admin = user?.id;
+      
+      // Update project status to reflect successful minting with verification
+      const projectUpdate = await supabase
+        .from('projects')
+        .update({
+          status: 'credits_minted',
+          mint_address: mintResult.mint,
+          credits_issued: parseInt(creditsToMint),
+          credits_source: creditSource,
+          minting_verification: mintingVerificationData,
+          minted_at: new Date().toISOString(),
+          is_immutable: true // Mark as immutable after minting
+        })
+        .eq('id', project.id);
+      
+      if (projectUpdate.error) {
+        console.error('Project update error:', projectUpdate.error);
+        showSnackbar('Warning: Tokens minted but project update failed', 'warning');
+      }
+      
+      // Token verification is built into the minting process
+      // Amount matching is enforced by server-side validation
+      
+      // Log admin action
+      await supabase.from('admin_logs').insert([{
+        admin_id: user?.id,
+        action: 'tokens_minted',
+        target_type: 'project',
+        target_id: project.id,
+        details: `Minted ${creditsToMint} credits for project: ${project.title}. Mint: ${mintResult.mint}, Tx: ${mintResult.tx}`
+      }]);
+      
+      showSnackbar(`Successfully minted ${creditsToMint} credits! View on Solana Explorer: ${mintResult.explorer_url}`, 'success');
+      
+      // Refresh projects and tokens to show updated state
+      await Promise.all([fetchProjects(), fetchTokens()]);
+      
+    } catch (error) {
+      console.error('Error minting tokens:', error);
+      showSnackbar(`Failed to mint tokens: ${error.message}`, 'error');
+    } finally {
+      setLoadingState('projects', false);
+    }
+  }, [showSnackbar, setLoadingState, fetchProjects, fetchTokens]);
+
+  // Loading screen
   if (loading) {
     return (
       <Box sx={{ 
@@ -596,1164 +796,813 @@ const AdminDashboard = () => {
         alignItems: 'center', 
         justifyContent: 'center' 
       }}>
-        <CircularProgress sx={{ color: '#00d4aa' }} />
+        <Stack spacing={2} alignItems="center">
+          <CircularProgress size={60} sx={{ color: '#00d4aa' }} />
+          <Typography variant="h6" sx={{ color: '#ffffff' }}>
+            Initializing Admin Dashboard...
+          </Typography>
+        </Stack>
       </Box>
     );
   }
 
-  const open = Boolean(anchorEl);
-  
-  // Calculate stats
-  const totalCredits = allTokens.reduce((sum, token) => sum + (token.amount || 0), 0);
-  const adminUsers = allUsers.filter(u => u.role === 'admin').length;
-  const regularUsers = allUsers.filter(u => u.role === 'user').length;
-  const pendingProjects = allProjects.filter(p => p.status === 'pending');
-  const approvedProjects = allProjects.filter(p => p.status === 'approved');
-  const projects = allProjects;
-  const tokens = allTokens;
-
   return (
-    <Box sx={{ 
-      minHeight: '100vh', 
-      bgcolor: '#0a0f1c', 
-      color: '#ffffff',
-      p: 3
-    }}>
-      <Container maxWidth="xl">
-        {/* Header */}
-        <Box sx={{ 
-          display: 'flex', 
-          justifyContent: 'space-between', 
-          alignItems: 'center', 
-          mb: 4,
-          pt: 2
-        }}>
-          <Typography variant="h4" sx={{ 
-            color: '#ffffff', 
-            fontWeight: 600,
-            fontSize: '2rem'
-          }}>
-            Admin Dashboard
-          </Typography>
-          <Box sx={{ position: 'relative' }}>
+    <Box sx={{ minHeight: '100vh', bgcolor: '#0a0f1c' }}>
+      {/* Modern App Bar */}
+      <AppBar position="sticky" sx={{ 
+        bgcolor: 'rgba(26, 35, 50, 0.95)', 
+        backdropFilter: 'blur(10px)',
+        borderBottom: '1px solid #2d3748'
+      }}>
+        <Toolbar sx={{ justifyContent: 'space-between' }}>
+          <Stack direction="row" alignItems="center" spacing={2}>
+            <Avatar sx={{ bgcolor: '#00d4aa' }}>
+              <AdminIcon />
+            </Avatar>
+            <Box>
+              <Typography variant="h6" sx={{ color: '#ffffff', fontWeight: 600 }}>
+                Carbon Credits Admin
+              </Typography>
+              <Typography variant="caption" sx={{ color: '#a0aec0' }}>
+                System Administrator Dashboard
+              </Typography>
+            </Box>
+          </Stack>
+          
+          <Stack direction="row" spacing={2} alignItems="center">
+            <Tooltip title="Refresh Dashboard">
+              <IconButton 
+                onClick={refreshAllData} 
+                disabled={refreshing}
+                sx={{ color: '#00d4aa' }}
+              >
+                {refreshing ? <CircularProgress size={20} /> : <RefreshIcon />}
+              </IconButton>
+            </Tooltip>
+            
+            <Badge badgeContent={dashboardStats.recentActivity} color="error">
+              <IconButton sx={{ color: '#ffffff' }}>
+                <AnalyticsIcon />
+              </IconButton>
+            </Badge>
+            
             <IconButton
-              onClick={handleMenuClick}
-              sx={{ 
-                p: 0,
-                '&:hover': { bgcolor: 'rgba(0, 212, 170, 0.1)' }
-              }}
+              onClick={(e) => setAnchorEl(e.currentTarget)}
+              sx={{ color: '#ffffff' }}
             >
-              <Avatar sx={{ 
-                bgcolor: '#1a2332', 
-                border: '2px solid #00d4aa',
-                width: 48,
-                height: 48
-              }}>
-                <AdminIcon sx={{ color: '#00d4aa' }} />
-              </Avatar>
+              <MoreVertIcon />
             </IconButton>
             
             <Menu
               anchorEl={anchorEl}
-              open={open}
+              open={Boolean(anchorEl)}
               onClose={handleMenuClose}
-              onClick={handleMenuClose}
               PaperProps={{
-                elevation: 8,
                 sx: {
                   bgcolor: '#1a2332',
                   border: '1px solid #2d3748',
-                  minWidth: 200,
-                  '& .MuiMenuItem-root': {
-                    color: '#ffffff',
-                    '&:hover': {
-                      bgcolor: 'rgba(0, 212, 170, 0.1)'
-                    }
-                  }
+                  color: '#ffffff'
                 }
               }}
-              transformOrigin={{ horizontal: 'right', vertical: 'top' }}
-              anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
             >
-              <MenuItem onClick={() => handleNavigation('/')}>  
-                <ListItemIcon>
-                  <HomeIcon sx={{ color: '#00d4aa' }} />
-                </ListItemIcon>
+              <MenuItem onClick={() => navigate('/')}>
+                <ListItemIcon><HomeIcon sx={{ color: '#00d4aa' }} /></ListItemIcon>
                 <ListItemText>Home</ListItemText>
               </MenuItem>
-              
-              <MenuItem onClick={() => handleNavigation('/admin')}>
-                <ListItemIcon>
-                  <AdminIcon sx={{ color: '#00d4aa' }} />
-                </ListItemIcon>
-                <ListItemText>Admin Dashboard</ListItemText>
+              <MenuItem onClick={() => navigate('/dashboard')}>
+                <ListItemIcon><DashboardIcon sx={{ color: '#00d4aa' }} /></ListItemIcon>
+                <ListItemText>User Dashboard</ListItemText>
               </MenuItem>
-              
               <Divider sx={{ bgcolor: '#2d3748' }} />
-              
-              <MenuItem onClick={() => handleNavigation('/settings')}>
-                <ListItemIcon>
-                  <SettingsIcon sx={{ color: '#00d4aa' }} />
-                </ListItemIcon>
-                <ListItemText>Settings</ListItemText>
-              </MenuItem>
-              
               <MenuItem onClick={handleLogout}>
-                <ListItemIcon>
-                  <LogoutIcon sx={{ color: '#ff6b6b' }} />
-                </ListItemIcon>
-                <ListItemText sx={{ color: '#ff6b6b' }}>Logout</ListItemText>
+                <ListItemIcon><LogoutIcon sx={{ color: '#ff6b6b' }} /></ListItemIcon>
+                <ListItemText>Logout</ListItemText>
               </MenuItem>
             </Menu>
-          </Box>
-        </Box>
+          </Stack>
+        </Toolbar>
+      </AppBar>
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 3, bgcolor: '#2d1b1b', color: '#ffcdd2' }}>
-            {error}
-          </Alert>
-        )}
-        
-        {/* Main Grid - Same layout as UserDashboard */}
-        <Grid container spacing={3}>
-          {/* Row 1: Admin Stats Cards */}
-          <Grid item xs={12} md={4}>
-            <Card sx={{ 
-              bgcolor: '#1a2332', 
-              border: '1px solid #2d3748',
-              height: '200px',
-              display: 'flex',
-              flexDirection: 'column'
-            }}>
-              <CardContent sx={{ flex: 1, p: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <ApprovalIcon sx={{ color: '#00d4aa', mr: 1, fontSize: 24 }} />
-                  <Typography variant="h6" sx={{ color: '#ffffff', fontWeight: 600 }}>
-                    Project Approvals
-                  </Typography>
-                </Box>
-                
-                <Typography variant="h3" sx={{ color: '#00d4aa', fontWeight: 700, mb: 1 }}>
-                  {pendingProjects.length}
-                </Typography>
-                <Typography variant="body2" sx={{ color: '#a0aec0' }}>
-                  Pending Approval
-                </Typography>
-                <Box sx={{ mt: 2, position: 'relative', height: 60 }}>
-                  <Box sx={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: '40px',
-                    background: 'linear-gradient(to right, transparent, rgba(255, 167, 38, 0.2))',
-                    borderRadius: '4px'
-                  }} />
-                  <PendingIcon sx={{ 
-                    position: 'absolute', 
-                    right: 0, 
-                    bottom: 10, 
-                    color: '#ffa726', 
-                    fontSize: 20 
-                  }} />
-                </Box>
-              </CardContent>
-            </Card>
+      <Container maxWidth="xl" sx={{ py: 3 }}>
+        {/* Dashboard Stats Cards */}
+        <Grid container spacing={3} sx={{ mb: 4 }}>
+          {/* Users Stats */}
+          <Grid item xs={12} sm={6} md={3}>
+            <StatsCard
+              title="Total Users"
+              value={dashboardStats.totalUsers}
+              icon={<UsersIcon />}
+              color="#2196f3"
+              loading={dataLoading.stats}
+              error={dataErrors.stats}
+            />
           </Grid>
-
-          <Grid item xs={12} md={4}>
-            <Card sx={{ 
-              bgcolor: '#1a2332', 
-              border: '1px solid #2d3748',
-              height: '200px',
-              display: 'flex',
-              flexDirection: 'column'
-            }}>
-              <CardContent sx={{ flex: 1, p: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <UsersIcon sx={{ color: '#00d4aa', mr: 1, fontSize: 24 }} />
-                  <Typography variant="h6" sx={{ color: '#ffffff', fontWeight: 600 }}>
-                    Platform Users
-                  </Typography>
-                </Box>
-                
-                <Typography variant="h3" sx={{ color: '#00d4aa', fontWeight: 700, mb: 1 }}>
-                  {allUsers.length}
-                </Typography>
-                <Typography variant="body2" sx={{ color: '#a0aec0' }}>
-                  {adminUsers} Admins • {regularUsers} Users
-                </Typography>
-                <Box sx={{ mt: 2, position: 'relative', height: 60 }}>
-                  <Box sx={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: '40px',
-                    background: 'linear-gradient(to right, transparent, rgba(0, 212, 170, 0.2))',
-                    borderRadius: '4px'
-                  }} />
-                  <TrendingUpIcon sx={{ 
-                    position: 'absolute', 
-                    right: 0, 
-                    bottom: 10, 
-                    color: '#00d4aa', 
-                    fontSize: 20 
-                  }} />
-                </Box>
-              </CardContent>
-            </Card>
+          
+          {/* Projects Stats */}
+          <Grid item xs={12} sm={6} md={3}>
+            <StatsCard
+              title="Pending Projects"
+              value={dashboardStats.pendingProjects}
+              subtitle={`${dashboardStats.totalProjects} total`}
+              icon={<PendingIcon />}
+              color="#ffa726"
+              loading={dataLoading.stats}
+              error={dataErrors.stats}
+            />
           </Grid>
-
-          <Grid item xs={12} md={4}>
-            <Card sx={{ 
-              bgcolor: '#1a2332', 
-              border: '1px solid #2d3748',
-              height: '200px',
-              display: 'flex',
-              flexDirection: 'column'
-            }}>
-              <CardContent sx={{ flex: 1, p: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <TokenIcon sx={{ color: '#00d4aa', mr: 1, fontSize: 24 }} />
-                  <Typography variant="h6" sx={{ color: '#ffffff', fontWeight: 600 }}>
-                    Carbon Credits Issued
-                  </Typography>
-                </Box>
-                
-                <Typography variant="h3" sx={{ color: '#00d4aa', fontWeight: 700, mb: 1 }}>
-                  {totalCredits.toLocaleString()} CCRs
-                </Typography>
-                <Typography variant="body2" sx={{ color: '#a0aec0' }}>
-                  From {tokens.length} token batches
-                </Typography>
-              </CardContent>
-            </Card>
+          
+          {/* Tokens Stats */}
+          <Grid item xs={12} sm={6} md={3}>
+            <StatsCard
+              title="Carbon Credits"
+              value={`${dashboardStats.totalCredits.toLocaleString()} CCR`}
+              subtitle={`${dashboardStats.totalTokens} transactions`}
+              icon={<TokenIcon />}
+              color="#00d4aa"
+              loading={dataLoading.stats}
+              error={dataErrors.stats}
+            />
           </Grid>
-
-          {/* Row 2: Recent Pending Projects, Recent Approved Projects */}
-          <Grid item xs={12} md={6}>
-            <Card sx={{ 
-              bgcolor: '#1a2332', 
-              border: '1px solid #2d3748',
-              height: '400px'
-            }}>
-              <CardContent sx={{ p: 3, height: '100%' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                  <PendingIcon sx={{ color: '#ffa726', mr: 1, fontSize: 24 }} />
-                  <Typography variant="h6" sx={{ color: '#ffffff', fontWeight: 600 }}>
-                    Pending Projects ({allProjects.filter(p => p.status === 'pending').length})
-                  </Typography>
-                </Box>
-                
-                {pendingProjects.length === 0 ? (
-                  <Typography variant="body2" sx={{ color: '#a0aec0', textAlign: 'center', mt: 4 }}>
-                    No pending projects
-                  </Typography>
-                ) : (
-                  <Box sx={{ maxHeight: '280px', overflowY: 'auto' }}>
-                    {pendingProjects.slice(0, 6).map((project, index) => (
-                      <Box key={project.id} sx={{ 
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        alignItems: 'center',
-                        py: 2,
-                        borderBottom: index < 5 ? '1px solid #2d3748' : 'none'
-                      }}>
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="body2" sx={{ color: '#ffffff', fontWeight: 600 }}>
-                            {project.title}
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: '#a0aec0' }}>
-                            {project.description?.slice(0, 50)}...
-                          </Typography>
-                          <Typography variant="caption" sx={{ display: 'block', color: '#a0aec0' }}>
-                            Credits: {project.estimated_credits}
-                          </Typography>
-                        </Box>
-                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                          <Button 
-                            size="small" 
-                            variant="contained"
-                            onClick={() => handleCalculateCredits(project)}
-                            disabled={!hasValidCarbonData(project)}
-                            sx={{ 
-                              bgcolor: '#8B5CF6',
-                              color: '#ffffff',
-                              fontSize: '0.7rem',
-                              minWidth: 'auto',
-                              px: 1.5,
-                              '&:hover': { bgcolor: '#7C3AED' },
-                              '&:disabled': { bgcolor: '#2d3748', color: '#6b7280' }
-                            }}
-                          >
-                            <CalculateIcon fontSize="small" />
-                          </Button>
-                          <Button 
-                            size="small" 
-                            variant="contained"
-                            onClick={() => handleApproveProject(project.id)}
-                            sx={{ 
-                              bgcolor: '#00d4aa',
-                              color: '#ffffff',
-                              fontSize: '0.75rem',
-                              minWidth: 'auto',
-                              px: 2,
-                              '&:hover': { bgcolor: '#00b899' }
-                            }}
-                          >
-                            <CheckIcon fontSize="small" />
-                          </Button>
-                          <Button 
-                            size="small" 
-                            variant="outlined"
-                            onClick={() => handleRejectProject(project.id, 'Admin rejected')}
-                            sx={{ 
-                              color: '#ff4444',
-                              borderColor: '#ff4444',
-                              fontSize: '0.75rem',
-                              minWidth: 'auto',
-                              px: 2,
-                              '&:hover': { bgcolor: 'rgba(255, 68, 68, 0.1)', borderColor: '#ff4444' }
-                            }}
-                          >
-                            <CloseIcon fontSize="small" />
-                          </Button>
-                          <Button 
-                            size="small" 
-                            onClick={() => handleOpenEditProjectDialog(project)}
-                            sx={{ 
-                              color: '#00d4aa',
-                              minWidth: 'auto',
-                              px: 1
-                            }}
-                          >
-                            <EditIcon fontSize="small" />
-                          </Button>
-                        </Box>
-                      </Box>
-                    ))}
-                  </Box>
-                )}
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Card sx={{ 
-              bgcolor: '#1a2332', 
-              border: '1px solid #2d3748',
-              height: '400px'
-            }}>
-              <CardContent sx={{ p: 3, height: '100%' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                  <UsersIcon sx={{ color: '#2196f3', mr: 1, fontSize: 24 }} />
-                  <Typography variant="h6" sx={{ color: '#ffffff', fontWeight: 600 }}>
-                    Platform Users ({allUsers.length})
-                  </Typography>
-                </Box>
-                
-                <Box sx={{ maxHeight: '280px', overflowY: 'auto' }}>
-                  {allUsers.slice(0, 6).map((user, index) => (
-                    <Box key={user.id} sx={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center',
-                      py: 2,
-                      borderBottom: index < 5 ? '1px solid #2d3748' : 'none'
-                    }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', flex: 1 }}>
-                        <Avatar sx={{ 
-                          bgcolor: user.is_blocked ? '#ff4444' : '#00d4aa', 
-                          width: 32, 
-                          height: 32,
-                          mr: 2
-                        }}>
-                          {user.is_blocked ? <BlockIcon fontSize="small" /> : <PersonIcon fontSize="small" />}
-                        </Avatar>
-                        <Box>
-                          <Typography variant="body2" sx={{ color: '#ffffff', fontWeight: 600 }}>
-                            {user.full_name || user.email}
-                          </Typography>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                            <Chip 
-                              label={user.role} 
-                              size="small" 
-                              sx={{ 
-                                bgcolor: user.role === 'admin' ? '#00d4aa' : '#2d3748',
-                                color: '#ffffff',
-                                fontSize: '0.7rem',
-                                height: '20px'
-                              }} 
-                            />
-                            {user.is_blocked && (
-                              <Chip 
-                                label="Blocked" 
-                                size="small" 
-                                sx={{ 
-                                  bgcolor: '#ff4444',
-                                  color: '#ffffff',
-                                  fontSize: '0.7rem',
-                                  height: '20px'
-                                }} 
-                              />
-                            )}
-                          </Box>
-                        </Box>
-                      </Box>
-                      <Box sx={{ display: 'flex', gap: 1 }}>
-                        <Button 
-                          size="small" 
-                          onClick={() => handleOpenEditUserDialog(user)}
-                          sx={{ color: '#00d4aa', minWidth: 'auto', px: 1 }}
-                        >
-                          <EditIcon fontSize="small" />
-                        </Button>
-                        <Button 
-                          size="small" 
-                          onClick={() => handleOpenBlockDialog(user)}
-                          sx={{ color: user.is_blocked ? '#ff8800' : '#ff4444', minWidth: 'auto', px: 1 }}
-                        >
-                          {user.is_blocked ? <CheckIcon fontSize="small" /> : <BlockIcon fontSize="small" />}
-                        </Button>
-                        <Button 
-                          size="small" 
-                          onClick={() => handleOpenDeleteDialog('user', user)}
-                          sx={{ color: '#ff4444', minWidth: 'auto', px: 1 }}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </Button>
-                      </Box>
-                    </Box>
-                  ))}
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Row 3: Token Management & Audit Logs */}
-          <Grid item xs={12} md={6}>
-            <Card sx={{ 
-              bgcolor: '#1a2332', 
-              border: '1px solid #2d3748',
-              height: '400px'
-            }}>
-              <CardContent sx={{ p: 3, height: '100%' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 3 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                    <Token sx={{ color: '#00d4aa', mr: 1, fontSize: 24 }} />
-                    <Typography variant="h6" sx={{ color: '#ffffff', fontWeight: 600 }}>
-                      Token Transactions ({tokens.length})
-                    </Typography>
-                  </Box>
-                  <Button 
-                    variant="contained"
-                    size="small"
-                    onClick={() => setOpenMintDialog(true)}
-                    sx={{ 
-                      bgcolor: '#00d4aa',
-                      color: '#ffffff',
-                      '&:hover': { bgcolor: '#00b899' }
-                    }}
-                  >
-                    <Token sx={{ mr: 1, fontSize: 16 }} />
-                    Mint
-                  </Button>
-                </Box>
-                
-                <Box sx={{ maxHeight: '280px', overflowY: 'auto' }}>
-                  {tokens.slice(0, 6).map((token, index) => {
-                    const project = projects.find(p => p.id === token.project_id);
-                    return (
-                      <Box key={token.id} sx={{ 
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        alignItems: 'center',
-                        py: 2,
-                        borderBottom: index < 5 ? '1px solid #2d3748' : 'none'
-                      }}>
-                        <Box sx={{ flex: 1 }}>
-                          <Typography variant="body2" sx={{ color: '#ffffff', fontWeight: 600 }}>
-                            {token.amount} Credits
-                          </Typography>
-                          <Typography variant="caption" sx={{ color: '#a0aec0' }}>
-                            {project?.title || 'Unknown Project'}
-                          </Typography>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
-                            <Chip 
-                              label={token.transaction_type} 
-                              size="small" 
-                              sx={{ 
-                                bgcolor: token.transaction_type === 'mint' ? '#00d4aa' : '#ff8800',
-                                color: '#ffffff',
-                                fontSize: '0.7rem',
-                                height: '20px'
-                              }} 
-                            />
-                            {token.status === 'burned' && (
-                              <Chip 
-                                label="Burned" 
-                                size="small" 
-                                sx={{ 
-                                  bgcolor: '#ff4444',
-                                  color: '#ffffff',
-                                  fontSize: '0.7rem',
-                                  height: '20px'
-                                }} 
-                              />
-                            )}
-                          </Box>
-                        </Box>
-                        {token.status !== 'burned' && (
-                          <Button 
-                            size="small" 
-                            onClick={() => handleBurnTokens(token.id, token.amount)}
-                            sx={{ color: '#ff4444', minWidth: 'auto', px: 1 }}
-                          >
-                            <DeleteIcon fontSize="small" />
-                          </Button>
-                        )}
-                      </Box>
-                    );
-                  })}
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          <Grid item xs={12} md={6}>
-            <Card sx={{ 
-              bgcolor: '#1a2332', 
-              border: '1px solid #2d3748',
-              height: '400px'
-            }}>
-              <CardContent sx={{ p: 3, height: '100%' }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 3 }}>
-                  <HistoryIcon sx={{ color: '#9c27b0', mr: 1, fontSize: 24 }} />
-                  <Typography variant="h6" sx={{ color: '#ffffff', fontWeight: 600 }}>
-                    Admin Activity Logs ({adminLogs.length})
-                  </Typography>
-                </Box>
-                
-                <Box sx={{ maxHeight: '280px', overflowY: 'auto' }}>
-                  {adminLogs.slice(0, 8).map((log, index) => (
-                    <Box key={index} sx={{ 
-                      display: 'flex', 
-                      justifyContent: 'space-between', 
-                      alignItems: 'center',
-                      py: 1.5,
-                      borderBottom: index < 7 ? '1px solid #2d3748' : 'none'
-                    }}>
-                      <Box sx={{ flex: 1 }}>
-                        <Typography variant="body2" sx={{ color: '#ffffff', fontWeight: 600, fontSize: '0.85rem' }}>
-                          {log.action.replace('_', ' ').toUpperCase()}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: '#a0aec0', display: 'block' }}>
-                          {log.details?.slice(0, 40)}...
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: '#a0aec0' }}>
-                          {formatDate(log.created_at)}
-                        </Typography>
-                      </Box>
-                      <Chip 
-                        label={log.target_type} 
-                        size="small" 
-                        sx={{ 
-                          bgcolor: '#2d3748',
-                          color: '#ffffff',
-                          fontSize: '0.7rem',
-                          height: '20px'
-                        }}
-                      />
-                    </Box>
-                  ))}
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-
-          {/* Row 4: Admin Quick Actions */}
-          <Grid item xs={12}>
-            <Card sx={{ 
-              bgcolor: '#1a2332', 
-              border: '1px solid #2d3748'
-            }}>
-              <CardContent sx={{ p: 3 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                  <AdminIcon sx={{ color: '#00d4aa', mr: 1, fontSize: 24 }} />
-                  <Typography variant="h6" sx={{ color: '#ffffff', fontWeight: 600 }}>
-                    Admin Quick Actions
-                  </Typography>
-                </Box>
-                
-                <Typography variant="body2" sx={{ color: '#a0aec0', mb: 3 }}>
-                  Manage the carbon credit platform with these administrative tools.
-                </Typography>
-                
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Button 
-                      variant="contained"
-                      fullWidth
-                      startIcon={<PendingIcon />}
-                      onClick={() => console.log('Review pending projects')}
-                      sx={{ 
-                        bgcolor: '#ffa726',
-                        color: '#ffffff',
-                        py: 2,
-                        borderRadius: 2,
-                        textTransform: 'none',
-                        fontSize: '1rem',
-                        fontWeight: 600,
-                        '&:hover': { 
-                          bgcolor: '#ff9800'
-                        }
-                      }}
-                    >
-                      Review Pending ({pendingProjects.length})
-                    </Button>
-                  </Grid>
-                  
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Button 
-                      variant="contained"
-                      fullWidth
-                      startIcon={<UsersIcon />}
-                      sx={{ 
-                        bgcolor: '#2196f3',
-                        color: '#ffffff',
-                        py: 2,
-                        borderRadius: 2,
-                        textTransform: 'none',
-                        fontSize: '1rem',
-                        fontWeight: 600,
-                        '&:hover': { 
-                          bgcolor: '#1976d2'
-                        }
-                      }}
-                    >
-                      Manage Users ({allUsers.length})
-                    </Button>
-                  </Grid>
-                  
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Button 
-                      variant="contained"
-                      fullWidth
-                      startIcon={<Token />}
-                      onClick={() => setOpenMintDialog(true)}
-                      sx={{ 
-                        bgcolor: '#00d4aa',
-                        color: '#ffffff',
-                        py: 2,
-                        borderRadius: 2,
-                        textTransform: 'none',
-                        fontSize: '1rem',
-                        fontWeight: 600,
-                        '&:hover': { 
-                          bgcolor: '#00b899'
-                        }
-                      }}
-                    >
-                      Mint Tokens ({tokens.length})
-                    </Button>
-                  </Grid>
-                  
-                  <Grid item xs={12} sm={6} md={3}>
-                    <Button 
-                      variant="contained"
-                      fullWidth
-                      startIcon={<HistoryIcon />}
-                      sx={{ 
-                        bgcolor: '#9c27b0',
-                        color: '#ffffff',
-                        py: 2,
-                        borderRadius: 2,
-                        textTransform: 'none',
-                        fontSize: '1rem',
-                        fontWeight: 600,
-                        '&:hover': { 
-                          bgcolor: '#7b1fa2'
-                        }
-                      }}
-                    >
-                      Audit Logs ({adminLogs.length})
-                    </Button>
-                  </Grid>
-                </Grid>
-              </CardContent>
-            </Card>
+          
+          {/* Activity Stats */}
+          <Grid item xs={12} sm={6} md={3}>
+            <StatsCard
+              title="Recent Activity"
+              value={dashboardStats.recentActivity}
+              subtitle="Last 24 hours"
+              icon={<TrendingUpIcon />}
+              color="#9c27b0"
+              loading={dataLoading.stats}
+              error={dataErrors.stats}
+            />
           </Grid>
         </Grid>
+
+        {/* Main Content Tabs */}
+        <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3748' }}>
+          <Tabs
+            value={currentTab}
+            onChange={handleTabChange}
+            sx={{
+              borderBottom: '1px solid #2d3748',
+              '& .MuiTab-root': { 
+                color: '#a0aec0',
+                '&.Mui-selected': { color: '#00d4aa' }
+              },
+              '& .MuiTabs-indicator': { bgcolor: '#00d4aa' }
+            }}
+          >
+            <Tab label="Overview" icon={<DashboardIcon />} />
+            <Tab label="Users" icon={<UsersIcon />} />
+            <Tab label="Projects" icon={<ApprovalIcon />} />
+            <Tab label="Tokens" icon={<TokenIcon />} />
+            <Tab label="Activity Logs" icon={<HistoryIcon />} />
+          </Tabs>
+
+          <CardContent sx={{ p: 3 }}>
+            {currentTab === 0 && <OverviewTab />}
+            {currentTab === 1 && <UsersTab />}
+            {currentTab === 2 && <ProjectsTab />}
+            {currentTab === 3 && <TokensTab />}
+            {currentTab === 4 && <ActivityLogsTab />}
+          </CardContent>
+        </Card>
       </Container>
-      
-      {/* Token Minting Dialog */}
-      <Dialog
-        open={openMintDialog}
-        onClose={() => setOpenMintDialog(false)}
-        PaperProps={{
-          sx: {
-            bgcolor: '#1a2332',
-            border: '1px solid #2d3748',
-            borderRadius: 2
-          }
-        }}
-      >
-        <DialogTitle sx={{ color: '#ffffff', borderBottom: '1px solid #2d3748' }}>
-          Mint Tokens to Project
-        </DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
-          <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel sx={{ color: '#00d4aa' }}>Select Project</InputLabel>
-            <Select
-              value={selectedProject?.id || ''}
-              onChange={(e) => {
-                const project = projects.find(p => p.id === e.target.value);
-                setSelectedProject(project);
-              }}
-              sx={{
-                color: '#ffffff',
-                '& .MuiOutlinedInput-notchedOutline': {
-                  borderColor: '#2d3748'
-                },
-                '&:hover .MuiOutlinedInput-notchedOutline': {
-                  borderColor: '#00d4aa'
-                },
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                  borderColor: '#00d4aa'
-                }
-              }}
-            >
-              {projects.map((project) => (
-                <MenuItem key={project.id} value={project.id} sx={{ color: '#ffffff' }}>
-                  {project.title}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-          
-          <TextField
-            fullWidth
-            label="Recipient Wallet Address"
-            value={recipientWallet}
-            onChange={(e) => setRecipientWallet(e.target.value)}
-            placeholder="Enter wallet address"
-            sx={{
-              mb: 2,
-              '& .MuiInputLabel-root': { color: '#00d4aa' },
-              '& .MuiOutlinedInput-root': {
-                color: '#ffffff',
-                '& fieldset': { borderColor: '#2d3748' },
-                '&:hover fieldset': { borderColor: '#00d4aa' },
-                '&.Mui-focused fieldset': { borderColor: '#00d4aa' }
-              }
-            }}
-          />
-          
-          <TextField
-            fullWidth
-            label="Amount to Mint"
-            type="number"
-            value={mintAmount}
-            onChange={(e) => setMintAmount(e.target.value)}
-            placeholder="Enter amount"
-            sx={{
-              '& .MuiInputLabel-root': { color: '#00d4aa' },
-              '& .MuiOutlinedInput-root': {
-                color: '#ffffff',
-                '& fieldset': { borderColor: '#2d3748' },
-                '&:hover fieldset': { borderColor: '#00d4aa' },
-                '&.Mui-focused fieldset': { borderColor: '#00d4aa' }
-              }
-            }}
-          />
-        </DialogContent>
-        <DialogActions sx={{ p: 3, borderTop: '1px solid #2d3748' }}>
-          <Button 
-            onClick={() => setOpenMintDialog(false)}
-            sx={{ color: '#ffffff' }}
-          >
-            Cancel
-          </Button>
-          <Button
-            onClick={handleMintTokens}
-            variant="contained"
-            disabled={mintLoading}
-            sx={{
-              bgcolor: '#00d4aa',
-              color: '#ffffff',
-              '&:hover': { bgcolor: '#00b894' }
-            }}
-          >
-            {mintLoading ? 'Minting...' : 'Mint Tokens'}
-          </Button>
-        </DialogActions>
-      </Dialog>
 
-      {/* Edit User Dialog */}
-      <Dialog
-        open={openEditUserDialog}
-        onClose={() => setOpenEditUserDialog(false)}
-        PaperProps={{
-          sx: {
-            bgcolor: '#1a2332',
-            border: '1px solid #2d3748',
-            borderRadius: 2
-          }
-        }}
-      >
-        <DialogTitle sx={{ color: '#ffffff', borderBottom: '1px solid #2d3748' }}>
-          Edit User
-        </DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
-          <TextField
-            fullWidth
-            label="Full Name"
-            value={editUserData.full_name}
-            onChange={(e) => setEditUserData({...editUserData, full_name: e.target.value})}
-            sx={{
-              mb: 2,
-              '& .MuiInputLabel-root': { color: '#00d4aa' },
-              '& .MuiOutlinedInput-root': {
-                color: '#ffffff',
-                '& fieldset': { borderColor: '#2d3748' },
-                '&:hover fieldset': { borderColor: '#00d4aa' },
-                '&.Mui-focused fieldset': { borderColor: '#00d4aa' }
-              }
-            }}
-          />
-          <TextField
-            fullWidth
-            label="Email"
-            value={editUserData.email}
-            onChange={(e) => setEditUserData({...editUserData, email: e.target.value})}
-            sx={{
-              mb: 2,
-              '& .MuiInputLabel-root': { color: '#00d4aa' },
-              '& .MuiOutlinedInput-root': {
-                color: '#ffffff',
-                '& fieldset': { borderColor: '#2d3748' },
-                '&:hover fieldset': { borderColor: '#00d4aa' },
-                '&.Mui-focused fieldset': { borderColor: '#00d4aa' }
-              }
-            }}
-          />
-          <FormControl fullWidth sx={{ mb: 2 }}>
-            <InputLabel sx={{ color: '#00d4aa' }}>Role</InputLabel>
-            <Select
-              value={editUserData.role}
-              onChange={(e) => setEditUserData({...editUserData, role: e.target.value})}
-              sx={{
-                color: '#ffffff',
-                '& .MuiOutlinedInput-notchedOutline': {
-                  borderColor: '#2d3748'
-                },
-                '&:hover .MuiOutlinedInput-notchedOutline': {
-                  borderColor: '#00d4aa'
-                },
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                  borderColor: '#00d4aa'
-                }
-              }}
-            >
-              <MenuItem value="user" sx={{ color: '#ffffff' }}>User</MenuItem>
-              <MenuItem value="admin" sx={{ color: '#ffffff' }}>Admin</MenuItem>
-            </Select>
-          </FormControl>
-          <TextField
-            fullWidth
-            label="Wallet Address"
-            value={editUserData.wallet_address}
-            onChange={(e) => setEditUserData({...editUserData, wallet_address: e.target.value})}
-            sx={{
-              '& .MuiInputLabel-root': { color: '#00d4aa' },
-              '& .MuiOutlinedInput-root': {
-                color: '#ffffff',
-                '& fieldset': { borderColor: '#2d3748' },
-                '&:hover fieldset': { borderColor: '#00d4aa' },
-                '&.Mui-focused fieldset': { borderColor: '#00d4aa' }
-              }
-            }}
-          />
-        </DialogContent>
-        <DialogActions sx={{ p: 3, borderTop: '1px solid #2d3748' }}>
-          <Button onClick={() => setOpenEditUserDialog(false)} sx={{ color: '#ffffff' }}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => handleEditUser(selectedUser?.id, editUserData)}
-            variant="contained"
-            sx={{
-              bgcolor: '#00d4aa',
-              color: '#ffffff',
-              '&:hover': { bgcolor: '#00b894' }
-            }}
-          >
-            Save Changes
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Block User Dialog */}
-      <Dialog
-        open={openBlockUserDialog}
-        onClose={() => setOpenBlockUserDialog(false)}
-        PaperProps={{
-          sx: {
-            bgcolor: '#1a2332',
-            border: '1px solid #2d3748',
-            borderRadius: 2
-          }
-        }}
-      >
-        <DialogTitle sx={{ color: '#ffffff', borderBottom: '1px solid #2d3748' }}>
-          {selectedUser?.is_blocked ? 'Unblock User' : 'Block User'}
-        </DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
-          <Typography sx={{ color: '#a0a9ba', mb: 2 }}>
-            {selectedUser?.is_blocked 
-              ? `Unblock ${selectedUser?.full_name || selectedUser?.email}?`
-              : `Block ${selectedUser?.full_name || selectedUser?.email}?`
-            }
-          </Typography>
-          {!selectedUser?.is_blocked && (
-            <TextField
-              fullWidth
-              label="Block Reason"
-              value={blockReason}
-              onChange={(e) => setBlockReason(e.target.value)}
-              multiline
-              rows={3}
-              sx={{
-                '& .MuiInputLabel-root': { color: '#00d4aa' },
-                '& .MuiOutlinedInput-root': {
-                  color: '#ffffff',
-                  '& fieldset': { borderColor: '#2d3748' },
-                  '&:hover fieldset': { borderColor: '#00d4aa' },
-                  '&.Mui-focused fieldset': { borderColor: '#00d4aa' }
-                }
-              }}
-            />
-          )}
-        </DialogContent>
-        <DialogActions sx={{ p: 3, borderTop: '1px solid #2d3748' }}>
-          <Button onClick={() => setOpenBlockUserDialog(false)} sx={{ color: '#ffffff' }}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              if (selectedUser?.is_blocked) {
-                handleUnblockUser(selectedUser.id);
-              } else {
-                handleBlockUser(selectedUser.id, blockReason);
-              }
-            }}
-            variant="contained"
-            sx={{
-              bgcolor: selectedUser?.is_blocked ? '#00d4aa' : '#ff4444',
-              color: '#ffffff',
-              '&:hover': { bgcolor: selectedUser?.is_blocked ? '#00b894' : '#cc0000' }
-            }}
-          >
-            {selectedUser?.is_blocked ? 'Unblock' : 'Block'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Edit Project Dialog */}
-      <Dialog
-        open={openEditProjectDialog}
-        onClose={() => setOpenEditProjectDialog(false)}
-        PaperProps={{
-          sx: {
-            bgcolor: '#1a2332',
-            border: '1px solid #2d3748',
-            borderRadius: 2
-          }
-        }}
-      >
-        <DialogTitle sx={{ color: '#ffffff', borderBottom: '1px solid #2d3748' }}>
-          Edit Project
-        </DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
-          <TextField
-            fullWidth
-            label="Title"
-            value={editProjectData.title}
-            onChange={(e) => setEditProjectData({...editProjectData, title: e.target.value})}
-            sx={{
-              mb: 2,
-              '& .MuiInputLabel-root': { color: '#00d4aa' },
-              '& .MuiOutlinedInput-root': {
-                color: '#ffffff',
-                '& fieldset': { borderColor: '#2d3748' },
-                '&:hover fieldset': { borderColor: '#00d4aa' },
-                '&.Mui-focused fieldset': { borderColor: '#00d4aa' }
-              }
-            }}
-          />
-          <TextField
-            fullWidth
-            label="Description"
-            value={editProjectData.description}
-            onChange={(e) => setEditProjectData({...editProjectData, description: e.target.value})}
-            multiline
-            rows={3}
-            sx={{
-              mb: 2,
-              '& .MuiInputLabel-root': { color: '#00d4aa' },
-              '& .MuiOutlinedInput-root': {
-                color: '#ffffff',
-                '& fieldset': { borderColor: '#2d3748' },
-                '&:hover fieldset': { borderColor: '#00d4aa' },
-                '&.Mui-focused fieldset': { borderColor: '#00d4aa' }
-              }
-            }}
-          />
-          <TextField
-            fullWidth
-            label="Location"
-            value={editProjectData.location}
-            onChange={(e) => setEditProjectData({...editProjectData, location: e.target.value})}
-            sx={{
-              mb: 2,
-              '& .MuiInputLabel-root': { color: '#00d4aa' },
-              '& .MuiOutlinedInput-root': {
-                color: '#ffffff',
-                '& fieldset': { borderColor: '#2d3748' },
-                '&:hover fieldset': { borderColor: '#00d4aa' },
-                '&.Mui-focused fieldset': { borderColor: '#00d4aa' }
-              }
-            }}
-          />
-          <TextField
-            fullWidth
-            label="Estimated Credits"
-            type="number"
-            value={editProjectData.estimated_credits}
-            onChange={(e) => setEditProjectData({...editProjectData, estimated_credits: e.target.value})}
-            sx={{
-              mb: 2,
-              '& .MuiInputLabel-root': { color: '#00d4aa' },
-              '& .MuiOutlinedInput-root': {
-                color: '#ffffff',
-                '& fieldset': { borderColor: '#2d3748' },
-                '&:hover fieldset': { borderColor: '#00d4aa' },
-                '&.Mui-focused fieldset': { borderColor: '#00d4aa' }
-              }
-            }}
-          />
-          <FormControl fullWidth>
-            <InputLabel sx={{ color: '#00d4aa' }}>Status</InputLabel>
-            <Select
-              value={editProjectData.status}
-              onChange={(e) => setEditProjectData({...editProjectData, status: e.target.value})}
-              sx={{
-                color: '#ffffff',
-                '& .MuiOutlinedInput-notchedOutline': {
-                  borderColor: '#2d3748'
-                },
-                '&:hover .MuiOutlinedInput-notchedOutline': {
-                  borderColor: '#00d4aa'
-                },
-                '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-                  borderColor: '#00d4aa'
-                }
-              }}
-            >
-              <MenuItem value="pending" sx={{ color: '#ffffff' }}>Pending</MenuItem>
-              <MenuItem value="approved" sx={{ color: '#ffffff' }}>Approved</MenuItem>
-              <MenuItem value="rejected" sx={{ color: '#ffffff' }}>Rejected</MenuItem>
-            </Select>
-          </FormControl>
-        </DialogContent>
-        <DialogActions sx={{ p: 3, borderTop: '1px solid #2d3748' }}>
-          <Button onClick={() => setOpenEditProjectDialog(false)} sx={{ color: '#ffffff' }}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => handleEditProject(selectedProject?.id, editProjectData)}
-            variant="contained"
-            sx={{
-              bgcolor: '#00d4aa',
-              color: '#ffffff',
-              '&:hover': { bgcolor: '#00b894' }
-            }}
-          >
-            Save Changes
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <Dialog
-        open={openDeleteDialog}
-        onClose={() => setOpenDeleteDialog(false)}
-        PaperProps={{
-          sx: {
-            bgcolor: '#1a2332',
-            border: '1px solid #2d3748',
-            borderRadius: 2
-          }
-        }}
-      >
-        <DialogTitle sx={{ color: '#ffffff', borderBottom: '1px solid #2d3748' }}>
-          Confirm Deletion
-        </DialogTitle>
-        <DialogContent sx={{ pt: 3 }}>
-          <Typography sx={{ color: '#a0a9ba' }}>
-            Are you sure you want to delete this {selectedUser ? 'user' : 'project'}? This action cannot be undone.
-          </Typography>
-        </DialogContent>
-        <DialogActions sx={{ p: 3, borderTop: '1px solid #2d3748' }}>
-          <Button onClick={() => setOpenDeleteDialog(false)} sx={{ color: '#ffffff' }}>
-            Cancel
-          </Button>
-          <Button
-            onClick={() => {
-              if (selectedUser) {
-                handleDeleteUser(selectedUser.id);
-              } else if (selectedProject) {
-                handleDeleteProject(selectedProject.id);
-              }
-            }}
-            variant="contained"
-            sx={{
-              bgcolor: '#ff4444',
-              color: '#ffffff',
-              '&:hover': { bgcolor: '#cc0000' }
-            }}
-          >
-            Delete
-          </Button>
-        </DialogActions>
-      </Dialog>
-      
-      {/* Carbon Credit Calculator Dialog */}
-      <CarbonCreditCalculatorDialog
-        open={calculatorOpen}
-        onClose={() => setCalculatorOpen(false)}
-        project={calculationProject}
-        onCreditCalculated={handleCreditCalculated}
-      />
-      
-      {/* Snackbar for notifications */}
+      {/* Snackbar */}
       <Snackbar
         open={snackbar.open}
         autoHideDuration={4000}
-        onClose={() => setSnackbar({ ...snackbar, open: false })}
+        onClose={closeSnackbar}
         anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       >
         <Alert 
-          onClose={() => setSnackbar({ ...snackbar, open: false })} 
+          onClose={closeSnackbar} 
           severity={snackbar.severity}
           sx={{ width: '100%' }}
         >
           {snackbar.message}
         </Alert>
       </Snackbar>
+      
+      {/* Project Detail Dialog */}
+      <ProjectDetailDialog
+        open={projectDetailDialog.open}
+        onClose={() => handleDialogClose('detail')}
+        project={projectDetailDialog.project}
+        onUpdate={handleProjectUpdate}
+      />
+      
+      {/* Carbon Credit Calculator Dialog */}
+      <CarbonCreditCalculatorDialog
+        open={calculatorDialog.open}
+        onClose={() => handleDialogClose('calculator')}
+        project={calculatorDialog.project}
+        onCreditCalculated={handleCreditCalculated}
+      />
     </Box>
   );
+
+  // Stats Card Component
+  function StatsCard({ title, value, subtitle, icon, color, loading, error }) {
+    if (loading) {
+      return (
+        <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3748', height: 140 }}>
+          <CardContent>
+            <Skeleton variant="rectangular" width="100%" height={100} />
+          </CardContent>
+        </Card>
+      );
+    }
+
+    if (error) {
+      return (
+        <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3748', height: 140 }}>
+          <CardContent>
+            <Stack direction="row" alignItems="center" spacing={2}>
+              <ErrorIcon sx={{ color: '#ff6b6b' }} />
+              <Typography variant="body2" sx={{ color: '#ff6b6b' }}>Error</Typography>
+            </Stack>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    return (
+      <Card sx={{ 
+        bgcolor: '#1a2332', 
+        border: '1px solid #2d3748',
+        height: 140,
+        position: 'relative',
+        overflow: 'hidden'
+      }}>
+        <CardContent>
+          <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
+            <Box>
+              <Typography variant="body2" sx={{ color: '#a0aec0', mb: 1 }}>
+                {title}
+              </Typography>
+              <Typography variant="h4" sx={{ color: '#ffffff', fontWeight: 700, mb: 0.5 }}>
+                {typeof value === 'number' ? value.toLocaleString() : value}
+              </Typography>
+              {subtitle && (
+                <Typography variant="caption" sx={{ color: '#a0aec0' }}>
+                  {subtitle}
+                </Typography>
+              )}
+            </Box>
+            <Avatar sx={{ bgcolor: `${color}20`, color }}>
+              {icon}
+            </Avatar>
+          </Stack>
+        </CardContent>
+        
+        {/* Decorative gradient */}
+        <Box sx={{
+          position: 'absolute',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          height: 4,
+          background: `linear-gradient(90deg, transparent, ${color})`
+        }} />
+      </Card>
+    );
+  }
+
+  // Tab Components
+  function OverviewTab() {
+    return (
+      <Box>
+        <Typography variant="h6" sx={{ color: '#ffffff', mb: 3 }}>
+          System Overview
+        </Typography>
+        
+        <Grid container spacing={3}>
+          {/* Quick Stats */}
+          <Grid item xs={12} md={6}>
+            <Card sx={{ bgcolor: '#243447', border: '1px solid #2d3748' }}>
+              <CardContent>
+                <Typography variant="h6" sx={{ color: '#ffffff', mb: 2 }}>
+                  Quick Statistics
+                </Typography>
+                <Stack spacing={2}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography sx={{ color: '#a0aec0' }}>Total Users:</Typography>
+                    <Typography sx={{ color: '#ffffff', fontWeight: 600 }}>{dashboardStats.totalUsers}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography sx={{ color: '#a0aec0' }}>Active Projects:</Typography>
+                    <Typography sx={{ color: '#ffffff', fontWeight: 600 }}>{dashboardStats.totalProjects}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography sx={{ color: '#a0aec0' }}>Pending Reviews:</Typography>
+                    <Typography sx={{ color: '#ffa726', fontWeight: 600 }}>{dashboardStats.pendingProjects}</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <Typography sx={{ color: '#a0aec0' }}>Credits Issued:</Typography>
+                    <Typography sx={{ color: '#00d4aa', fontWeight: 600 }}>{dashboardStats.totalCredits.toLocaleString()} CCR</Typography>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          {/* System Status */}
+          <Grid item xs={12} md={6}>
+            <Card sx={{ bgcolor: '#243447', border: '1px solid #2d3748' }}>
+              <CardContent>
+                <Typography variant="h6" sx={{ color: '#ffffff', mb: 2 }}>
+                  System Status
+                </Typography>
+                <Stack spacing={2}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <CheckCircleIcon sx={{ color: '#4caf50' }} />
+                    <Typography sx={{ color: '#ffffff' }}>Database Connection</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <CheckCircleIcon sx={{ color: '#4caf50' }} />
+                    <Typography sx={{ color: '#ffffff' }}>Authentication Service</Typography>
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                    <InfoIcon sx={{ color: '#2196f3' }} />
+                    <Typography sx={{ color: '#ffffff' }}>Background Jobs</Typography>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      </Box>
+    );
+  }
+
+  function UsersTab() {
+    // Show helpful message when no users exist
+    if (!dataLoading.users && !dataErrors.users && allUsers.length === 0) {
+      return (
+        <Box sx={{ textAlign: 'center', py: 8 }}>
+          <Typography variant="h5" sx={{ color: '#ffffff', mb: 2 }}>
+            No Users Found
+          </Typography>
+          <Typography variant="body1" sx={{ color: '#a0aec0', mb: 4, maxWidth: '600px', mx: 'auto' }}>
+            There are no user accounts in the database yet. Users will appear here once they register through the application.
+          </Typography>
+          <Typography variant="body2" sx={{ color: '#a0aec0' }}>
+            👥 To get started: Go to the registration page and create user accounts
+          </Typography>
+        </Box>
+      );
+    }
+    
+    return (
+      <DataTable
+        title="User Management"
+        data={allUsers}
+        loading={dataLoading.users}
+        error={dataErrors.users}
+        columns={[
+          { field: 'email', headerName: 'Email', flex: 1 },
+          { field: 'full_name', headerName: 'Full Name', flex: 1 },
+          { field: 'organization_name', headerName: 'Organization', width: 200 },
+          { field: 'role', headerName: 'Role', width: 120, render: (value) => (
+            <Chip 
+              label={value} 
+              size="small" 
+              sx={{ 
+                bgcolor: value === 'admin' ? '#00d4aa' : value === 'verifier' ? '#ff9800' : '#2d3748',
+                color: '#ffffff'
+              }}
+            />
+          )},
+          { field: 'is_verified', headerName: 'Verified', width: 100, render: (value) => (
+            <Chip 
+              label={value ? 'Yes' : 'No'} 
+              size="small" 
+              color={value ? 'success' : 'default'}
+            />
+          )},
+          { field: 'created_at', headerName: 'Joined', width: 120, render: (value) => formatDate(value) },
+          { field: 'is_blocked', headerName: 'Status', width: 100, render: (value) => (
+            <Chip 
+              label={value ? 'Blocked' : 'Active'} 
+              size="small" 
+              color={value ? 'error' : 'success'}
+            />
+          )}
+        ]}
+        actions={[
+          { label: 'Edit', icon: <EditIcon />, onClick: (item) => console.log('Edit user', item) },
+          { label: 'Block/Unblock', icon: <BlockIcon />, onClick: (item) => console.log('Block user', item) }
+        ]}
+      />
+    );
+  }
+
+  function ProjectsTab() {
+    // Show helpful message when no projects exist
+    if (!dataLoading.projects && !dataErrors.projects && allProjects.length === 0) {
+      return (
+        <Box sx={{ textAlign: 'center', py: 8 }}>
+          <Typography variant="h5" sx={{ color: '#ffffff', mb: 2 }}>
+            No Projects Found
+          </Typography>
+          <Typography variant="body1" sx={{ color: '#a0aec0', mb: 4, maxWidth: '600px', mx: 'auto' }}>
+            There are no projects in the database yet. Projects will appear here once users register, log in, and submit project proposals through the system.
+          </Typography>
+          <Typography variant="body2" sx={{ color: '#a0aec0' }}>
+            📄 To get started: Register as a user → Connect wallet → Create project
+          </Typography>
+        </Box>
+      );
+    }
+    
+    // Generate dynamic actions based on project status
+    const getProjectActions = (project) => {
+      const actions = [
+        { label: 'Review', icon: <ViewIcon />, onClick: handleProjectReview }
+      ];
+      
+      // Show Calculate button only if credits haven't been calculated yet
+      if (!project.calculated_credits && project.status !== 'credits_calculated' && project.status !== 'credits_minted') {
+        actions.push({ 
+          label: 'Calculate', 
+          icon: <CalculateIcon />, 
+          onClick: (item) => { setSelectedProject(item); handleProjectCalculate(item); },
+          color: '#ff9800'
+        });
+      }
+      
+      // Show Approve button only for pending projects that haven't been approved
+      if (project.status === 'pending') {
+        actions.push({ 
+          label: 'Approve', 
+          icon: <CheckIcon />, 
+          onClick: handleProjectApprove,
+          color: '#4caf50'
+        });
+      }
+      
+      // Show Mint Tokens button only if:
+      // 1. Project has calculated/estimated credits
+      // 2. Project hasn't been minted yet
+      // 3. User has provided wallet address
+      if ((project.status === 'approved' || project.status === 'credits_calculated') && 
+          (project.calculated_credits || project.estimated_credits) && 
+          project.status !== 'credits_minted') {
+        
+        // Check wallet address from user's profile, not project
+        // Handle case where profiles might be null or undefined
+        const userWalletAddress = (project.profiles && project.profiles.wallet_address) || project.wallet_address;
+        if (userWalletAddress) {
+          // User has wallet - show mint button
+          actions.push({ 
+            label: 'Mint Tokens', 
+            icon: <Token />, 
+            onClick: handleMintTokens,
+            color: '#00d4aa'
+          });
+        } else {
+          // User hasn't provided wallet - show warning action
+          actions.push({ 
+            label: 'Wallet Required', 
+            icon: <WarningIcon />, 
+            onClick: (item) => showSnackbar(
+              `Cannot mint tokens for "${item.title}": User must connect a wallet address in their profile.`, 
+              'warning'
+            ),
+            color: '#ff9800'
+          });
+        }
+      }
+      
+      return actions;
+    };
+    
+    return (
+      <DataTable
+        title="Project Management"
+        data={allProjects}
+        loading={dataLoading.projects}
+        error={dataErrors.projects}
+        columns={[
+          { field: 'title', headerName: 'Project Title', flex: 1 },
+          { field: 'project_type', headerName: 'Type', width: 140, render: (value) => (
+            <Chip 
+              label={value || 'Carbon Seq.'} 
+              size="small" 
+              sx={{ bgcolor: '#2d3748', color: '#ffffff' }}
+            />
+          )},
+          { field: 'status', headerName: 'Status', width: 140, render: (value) => {
+            let bgcolor = '#2d3748';
+            
+            switch(value) {
+              case 'approved': bgcolor = '#2e7d32'; break;
+              case 'pending': bgcolor = '#ed6c02'; break;
+              case 'rejected': bgcolor = '#d32f2f'; break;
+              case 'credits_calculated': bgcolor = '#0288d1'; break;
+              case 'credits_minted': bgcolor = '#00d4aa'; break;
+              default: break;
+            }
+            
+            return (
+              <Chip 
+                label={value?.replace(/_/g, ' ').toUpperCase() || 'PENDING'} 
+                size="small" 
+                sx={{ 
+                  bgcolor: bgcolor,
+                  color: '#ffffff',
+                  fontWeight: 600
+                }}
+              />
+            );
+          }},
+          { field: 'estimated_credits', headerName: 'Est. Credits', width: 120, render: (value) => 
+            value ? `${parseInt(value).toLocaleString()} CCR` : 'N/A'
+          },
+          { field: 'calculated_credits', headerName: 'Calc. Credits', width: 120, render: (value) => 
+            value ? `${parseInt(value).toLocaleString()} CCR` : 'N/A'
+          },
+          { field: 'credits_issued', headerName: 'Issued', width: 120, render: (value) => 
+            value ? `${parseInt(value).toLocaleString()} CCR` : 'N/A'
+          },
+          { field: 'wallet_address', headerName: 'Wallet Status', width: 120, render: (value, row) => {
+            // Check wallet address from user's profile first, then project
+            const userWalletAddress = (row.profiles && row.profiles.wallet_address) || value;
+            
+            if (userWalletAddress) {
+              return (
+                <Chip 
+                  label="✓ Connected" 
+                  size="small" 
+                  sx={{ 
+                    bgcolor: '#4caf50',
+                    color: '#ffffff',
+                    fontWeight: 600
+                  }}
+                  title={`Wallet: ${userWalletAddress.slice(0, 8)}...${userWalletAddress.slice(-6)}`}
+                />
+              );
+            } else {
+              return (
+                <Chip 
+                  label="⚠ Missing" 
+                  size="small" 
+                  sx={{ 
+                    bgcolor: '#ff9800',
+                    color: '#ffffff',
+                    fontWeight: 600
+                  }}
+                  title="User needs to connect wallet address"
+                />
+              );
+            }
+          }},
+          { field: 'mint_address', headerName: 'Mint Address', width: 120, render: (value) =>
+            value ? `${value.slice(0, 6)}...${value.slice(-4)}` : 'N/A'
+          },
+          { field: 'organization_name', headerName: 'Organization', flex: 1 },
+          { field: 'created_at', headerName: 'Submitted', width: 120, render: (value) => formatDate(value) }
+        ]}
+        getRowActions={getProjectActions}
+      />
+    );
+  }
+
+  function TokensTab() {
+    return (
+      <DataTable
+        title="Token Management"
+        data={allTokens}
+        loading={dataLoading.tokens}
+        error={dataErrors.tokens}
+        columns={[
+          { field: 'projects', headerName: 'Project', flex: 1, render: (value, row) => {
+            const projectName = value?.title || value?.name || 'Unknown Project';
+            return (
+              <Box>
+                <Typography variant="body2" sx={{ color: '#ffffff', fontWeight: 600 }}>
+                  {projectName.length > 30 ? projectName.slice(0, 30) + '...' : projectName}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#a0aec0' }}>
+                  ID: {row.project_id?.slice(0, 8)}...
+                </Typography>
+              </Box>
+            );
+          }},
+          { field: 'amount', headerName: 'Amount', width: 120, render: (value) => (
+            <Box sx={{ textAlign: 'right' }}>
+              <Typography variant="body2" sx={{ color: '#00d4aa', fontWeight: 600 }}>
+                {parseInt(value).toLocaleString()}
+              </Typography>
+              <Typography variant="caption" sx={{ color: '#a0aec0' }}>
+                CCR
+              </Typography>
+            </Box>
+          )},
+          { field: 'token_standard', headerName: 'Standard', width: 100, render: (value) => (
+            <Chip 
+              label={value || 'SPL'} 
+              size="small" 
+              sx={{ 
+                bgcolor: '#00d4aa',
+                color: '#ffffff',
+                fontWeight: 600
+              }}
+            />
+          )},
+          { field: 'status', headerName: 'Status', width: 100, render: (value) => (
+            <Chip 
+              label={value?.toUpperCase() || 'ACTIVE'} 
+              size="small" 
+              sx={{
+                bgcolor: value === 'active' ? '#4caf50' : value === 'retired' ? '#ff9800' : value === 'burned' ? '#f44336' : '#2196f3',
+                color: '#ffffff',
+                fontWeight: 600
+              }}
+            />
+          )},
+          { field: 'recipient', headerName: 'Recipient', width: 140, render: (value) => 
+            value ? (
+              <Box>
+                <Typography variant="body2" sx={{ color: '#ffffff', fontFamily: 'monospace' }}>
+                  {`${value.slice(0, 6)}...${value.slice(-4)}`}
+                </Typography>
+              </Box>
+            ) : 'N/A'
+          },
+          { field: 'mint', headerName: 'Mint Address', width: 140, render: (value) => 
+            value ? (
+              <Box>
+                <Typography variant="body2" sx={{ color: '#ffffff', fontFamily: 'monospace' }}>
+                  {`${value.slice(0, 8)}...${value.slice(-6)}`}
+                </Typography>
+              </Box>
+            ) : 'N/A'
+          },
+          { field: 'minted_tx', headerName: 'Transaction', width: 120, render: (value) => 
+            value ? (
+              <Tooltip title="View on Solana Explorer">
+                <Typography 
+                  variant="body2" 
+                  sx={{ 
+                    color: '#00d4aa', 
+                    cursor: 'pointer',
+                    fontFamily: 'monospace',
+                    '&:hover': { textDecoration: 'underline' }
+                  }}
+                  onClick={() => window.open(`https://explorer.solana.com/tx/${value}?cluster=devnet`, '_blank')}
+                >
+                  {`${value.slice(0, 8)}...`}
+                </Typography>
+              </Tooltip>
+            ) : 'N/A'
+          },
+          { field: 'created_at', headerName: 'Minted', width: 140, render: (value) => formatDate(value) }
+        ]}
+        actions={[
+          { 
+            label: 'View Details', 
+            icon: <ViewIcon />, 
+            onClick: (item) => {
+              // Create a detailed view of the token
+              const details = `Token Details:\n\nAmount: ${parseInt(item.amount).toLocaleString()} CCR\nMint: ${item.mint}\nRecipient: ${item.recipient}\nTransaction: ${item.minted_tx}\nProject: ${item.projects?.title || 'Unknown'}\nStatus: ${item.status}\nMinted: ${formatDate(item.created_at)}`;
+              alert(details);
+            },
+            color: '#2196f3'
+          },
+          {
+            label: 'Solana Explorer',
+            icon: <Token />,
+            onClick: (item) => {
+              if (item.minted_tx) {
+                window.open(`https://explorer.solana.com/tx/${item.minted_tx}?cluster=devnet`, '_blank');
+              } else {
+                showSnackbar('No transaction hash available', 'warning');
+              }
+            },
+            color: '#00d4aa'
+          }
+        ]}
+      />
+    );
+  }
+
+  function ActivityLogsTab() {
+    return (
+      <DataTable
+        title="Admin Activity Logs"
+        data={adminLogs}
+        loading={dataLoading.logs}
+        error={dataErrors.logs}
+        columns={[
+          { field: 'action', headerName: 'Action', width: 150, render: (value) => 
+            value.replace('_', ' ').toUpperCase()
+          },
+          { field: 'target_type', headerName: 'Target', width: 100 },
+          { field: 'details', headerName: 'Details', flex: 1, render: (value) => 
+            value ? (value.length > 50 ? value.slice(0, 50) + '...' : value) : 'N/A'
+          },
+          { field: 'created_at', headerName: 'Date', width: 140, render: (value) => formatDate(value) }
+        ]}
+      />
+    );
+  }
+
+  // Generic Data Table Component
+  function DataTable({ title, data, loading, error, columns, actions = [], getRowActions }) {
+    if (loading) {
+      return (
+        <Box>
+          <Typography variant="h6" sx={{ color: '#ffffff', mb: 2 }}>{title}</Typography>
+          <Stack spacing={1}>
+            {[...Array(5)].map((_, i) => (
+              <Skeleton key={i} variant="rectangular" height={50} sx={{ bgcolor: '#2d3748' }} />
+            ))}
+          </Stack>
+        </Box>
+      );
+    }
+
+    if (error) {
+      return (
+        <Box>
+          <Typography variant="h6" sx={{ color: '#ffffff', mb: 2 }}>{title}</Typography>
+          <Alert severity="error" sx={{ bgcolor: '#2d1b1b', color: '#ffcdd2' }}>
+            {error}
+          </Alert>
+        </Box>
+      );
+    }
+
+    return (
+      <Box>
+        <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 2 }}>
+          <Typography variant="h6" sx={{ color: '#ffffff' }}>{title}</Typography>
+          <Typography variant="body2" sx={{ color: '#a0aec0' }}>
+            {data.length} items
+          </Typography>
+        </Stack>
+
+        <TableContainer component={Paper} sx={{ bgcolor: '#1a2332', maxHeight: 400 }}>
+          <Table stickyHeader>
+            <TableHead>
+              <TableRow>
+                {columns.map((column) => (
+                  <TableCell 
+                    key={column.field}
+                    sx={{ 
+                      bgcolor: '#2d3748', 
+                      color: '#ffffff',
+                      fontWeight: 600,
+                      width: column.width,
+                      flex: column.flex
+                    }}
+                  >
+                    {column.headerName}
+                  </TableCell>
+                ))}
+                {(actions.length > 0 || getRowActions) && (
+                  <TableCell sx={{ bgcolor: '#2d3748', color: '#ffffff', fontWeight: 600, width: 200 }}>
+                    Actions
+                  </TableCell>
+                )}
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {data.slice(0, 100).map((row, index) => (
+                <TableRow key={row.id || index} sx={{ '&:hover': { bgcolor: '#243447' } }}>
+                  {columns.map((column) => (
+                    <TableCell key={column.field} sx={{ color: '#ffffff', borderColor: '#2d3748' }}>
+                      {column.render ? column.render(row[column.field], row) : (row[column.field] || 'N/A')}
+                    </TableCell>
+                  ))}
+                  {(actions.length > 0 || getRowActions) && (
+                    <TableCell sx={{ color: '#ffffff', borderColor: '#2d3748' }}>
+                      <Stack direction="row" spacing={1}>
+                        {(getRowActions ? getRowActions(row) : actions).map((action, idx) => (
+                          <Tooltip key={idx} title={action.label}>
+                            <IconButton
+                              size="small"
+                              onClick={() => action.onClick(row)}
+                              sx={{ color: action.color || '#00d4aa' }}
+                            >
+                              {action.icon}
+                            </IconButton>
+                          </Tooltip>
+                        ))}
+                      </Stack>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
+    );
+  }
 };
 
 export default AdminDashboard;
