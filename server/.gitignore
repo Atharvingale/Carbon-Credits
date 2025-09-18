@@ -1,0 +1,56 @@
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+dist/
+build/
+.cache/
+.next/
+out/
+
+# Logs
+logs
+*.log
+*.log.*
+pnpm-debug.log*
+
+# OS / Editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Supabase generated files (if any)
+.supabase/
+
+# Solana keys (very important!)
+*.json
+*.key
+*.pem
+
+# Coverage reports
+coverage/
+lcov-report/
+
+# Temporary files
+tmp/
+temp/
+
+# TypeScript cache
+*.tsbuildinfo
+
+# React testing
+jest-cache/
+jest/

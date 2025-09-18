@@ -1,256 +1,174 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useWallet } from '@solana/wallet-adapter-react';
-import { WalletMultiButton } from '@solana/wallet-adapter-react-ui';
+import React, { useState, useCallback, useMemo } from 'react';
+import { WalletMultiButton, WalletDisconnectButton } from '@solana/wallet-adapter-react-ui';
 import '@solana/wallet-adapter-react-ui/styles.css';
-import { 
-  Box, 
-  Typography, 
-  Chip, 
-  Alert, 
-  Button, 
+import {
+  Box,
+  Typography,
+  Chip,
+  Alert,
+  Button,
   CircularProgress,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   IconButton,
-  Tooltip
+  Tooltip,
+  Card,
+  CardContent,
+  Divider,
+  Stack,
+  LinearProgress,
+  Collapse
 } from '@mui/material';
 import {
   CheckCircle as CheckCircleIcon,
   Error as ErrorIcon,
+  Warning as WarningIcon,
   Info as InfoIcon,
   Sync as SyncIcon,
-  Logout as DisconnectIcon
+  Logout as DisconnectIcon,
+  AccountBalanceWallet as WalletIcon,
+  Refresh as RefreshIcon,
+  ExpandMore as ExpandMoreIcon,
+  ExpandLess as ExpandLessIcon,
+  Security as SecurityIcon
 } from '@mui/icons-material';
 import { formatPublicKey } from '../lib/solana';
-import { supabase } from '../lib/supabaseClient';
+import { useWallet } from '../hooks/useWallet';
+import { formatWalletAddress, getWalletStatusDisplay } from '../utils/walletUtils';
 
-export default function ConnectWallet({ onWalletSaved, showSaveButton = true, compact = false }) {
-  const { publicKey, connected, disconnect } = useWallet();
-  const [user, setUser] = useState(null);
-  const [savedWalletAddress, setSavedWalletAddress] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [success, setSuccess] = useState(null);
+/**
+ * Enhanced ConnectWallet component with improved state management and UX
+ * @param {Object} props
+ * @param {Function} [props.onWalletSaved] - Callback when wallet is saved
+ * @param {boolean} [props.showSaveButton] - Whether to show save button
+ * @param {boolean} [props.compact] - Whether to use compact display
+ * @param {boolean} [props.showDetails] - Whether to show detailed wallet info
+ * @param {boolean} [props.autoSave] - Whether to automatically save on connection
+ * @param {string} [props.size] - Size variant (small, medium, large)
+ * @param {Object} [props.sx] - Custom styles
+ */
+export default function ConnectWallet({
+  onWalletSaved,
+  showSaveButton = true,
+  compact = false,
+  showDetails = true,
+  autoSave = false,
+  size = 'medium',
+  sx = {}
+}) {
+  const wallet = useWallet();
   const [showSaveDialog, setShowSaveDialog] = useState(false);
-  const [isWalletMismatch, setIsWalletMismatch] = useState(false);
-  
-  // Define fetchSavedWalletAddress first
-  const fetchSavedWalletAddress = useCallback(async () => {
-    if (!user) return;
-    
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      
-      const response = await fetch('http://localhost:3001/wallet', {
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        setSavedWalletAddress(data.walletAddress);
-      } else if (response.status === 404) {
-        // API endpoint not found, wallet API server may not be running
-        console.warn('Wallet API server not available. Some features may be limited.');
-      } else {
-        console.error('Failed to fetch wallet:', response.status, response.statusText);
-      }
-    } catch (error) {
-      if (error.message === 'Failed to fetch' || error.name === 'TypeError') {
-        // Network error - wallet API server likely not running
-        console.warn('Wallet API server not accessible. Please ensure it is running on port 3001.');
-      } else {
-        console.error('Error fetching saved wallet:', error);
-      }
-    }
-  }, [user]);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [operationInProgress, setOperationInProgress] = useState(null);
 
-  // Check user authentication status
-  useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user || null);
-    };
-    checkUser();
-    
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user || null);
+  // Get wallet status display info
+  const statusDisplay = useMemo(() => {
+    return getWalletStatusDisplay({
+      connected: wallet.connected,
+      hasWallet: wallet.hasWallet,
+      publicKey: wallet.publicKey,
+      walletAddress: wallet.walletAddress,
+      loading: wallet.loading,
+      error: wallet.error
     });
-    
-    return () => subscription.unsubscribe();
-  }, []);
-  
-  // Fetch saved wallet address when user changes
-  useEffect(() => {
-    if (user) {
-      fetchSavedWalletAddress();
-    } else {
-      setSavedWalletAddress(null);
-    }
-  }, [user, fetchSavedWalletAddress]);
-  
-  // Check for wallet address mismatch
-  useEffect(() => {
-    if (publicKey && savedWalletAddress && connected) {
-      const currentWallet = publicKey.toBase58();
-      setIsWalletMismatch(currentWallet !== savedWalletAddress);
-    } else {
-      setIsWalletMismatch(false);
-    }
-  }, [publicKey, savedWalletAddress, connected]);
-  
-  const saveWalletAddress = async () => {
-    if (!user || !publicKey || !connected) {
-      setError('Please connect your wallet and ensure you\'re logged in');
-      return;
-    }
-    
-    setLoading(true);
-    setError(null);
-    setSuccess(null);
-    
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        setError('Please log in to save your wallet address');
-        return;
+  }, [wallet]);
+
+  // Auto-save wallet when connected (if enabled)
+  const handleAutoSave = useCallback(async () => {
+    if (autoSave && wallet.connected && wallet.publicKey && !wallet.hasWallet) {
+      try {
+        setOperationInProgress('auto-saving');
+        const result = await wallet.saveWallet();
+        if (result.success && onWalletSaved) {
+          onWalletSaved(wallet.publicKey);
+        }
+      } catch (error) {
+        console.error('Auto-save failed:', error);
+      } finally {
+        setOperationInProgress(null);
       }
+    }
+  }, [autoSave, wallet, onWalletSaved]);
+
+  // Trigger auto-save when conditions are met
+  React.useEffect(() => {
+    handleAutoSave();
+  }, [handleAutoSave]);
+
+  // Handle manual save
+  const handleSaveWallet = useCallback(async () => {
+    try {
+      setOperationInProgress('saving');
+      const result = await wallet.saveWallet();
       
-      const walletAddress = publicKey.toBase58();
-      
-      const response = await fetch('http://localhost:3001/wallet', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ walletAddress })
-      });
-      
-      const data = await response.json();
-      
-      if (response.ok) {
-        setSavedWalletAddress(walletAddress);
-        setSuccess('Wallet address saved successfully!');
-        setIsWalletMismatch(false);
+      if (result.success) {
         setShowSaveDialog(false);
-        
-        // Call callback if provided
         if (onWalletSaved) {
-          onWalletSaved(walletAddress);
+          onWalletSaved(wallet.publicKey);
         }
-        
-        // Clear success message after 3 seconds
-        setTimeout(() => setSuccess(null), 3000);
-      } else {
-        setError(data.error || 'Failed to save wallet address');
       }
     } catch (error) {
-      console.error('Error saving wallet:', error);
-      setError('Failed to connect to wallet service');
+      console.error('Save wallet failed:', error);
     } finally {
-      setLoading(false);
+      setOperationInProgress(null);
     }
-  };
-  
-  const disconnectWallet = async () => {
+  }, [wallet, onWalletSaved]);
+
+  // Handle remove wallet
+  const handleRemoveWallet = useCallback(async () => {
     try {
-      await disconnect();
-      setIsWalletMismatch(false);
-      setError(null);
-      setSuccess(null);
+      setOperationInProgress('removing');
+      await wallet.removeWallet();
     } catch (error) {
-      console.error('Error disconnecting wallet:', error);
-    }
-  };
-  
-  const removeSavedWallet = async () => {
-    if (!user) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        setError('Please log in to remove your wallet address');
-        return;
-      }
-      
-      const response = await fetch('http://localhost:3001/wallet', {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${session.access_token}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (response.ok) {
-        setSavedWalletAddress(null);
-        setSuccess('Wallet address removed successfully!');
-        setIsWalletMismatch(false);
-        
-        // Clear success message after 3 seconds
-        setTimeout(() => setSuccess(null), 3000);
-      } else {
-        const data = await response.json();
-        setError(data.error || 'Failed to remove wallet address');
-      }
-    } catch (error) {
-      console.error('Error removing wallet:', error);
-      setError('Failed to connect to wallet service');
+      console.error('Remove wallet failed:', error);
     } finally {
-      setLoading(false);
+      setOperationInProgress(null);
     }
-  };
-  
-  const getWalletStatus = () => {
-    if (!user) {
-      return { type: 'info', message: 'Please log in to save your wallet address', icon: <InfoIcon /> };
+  }, [wallet]);
+
+  // Handle disconnect
+  const handleDisconnect = useCallback(async () => {
+    try {
+      setOperationInProgress('disconnecting');
+      await wallet.disconnect();
+    } catch (error) {
+      console.error('Disconnect failed:', error);
+    } finally {
+      setOperationInProgress(null);
     }
-    
-    if (!connected) {
-      return { type: 'info', message: 'Connect your wallet to get started', icon: <InfoIcon /> };
-    }
-    
-    if (isWalletMismatch) {
-      return { 
-        type: 'warning', 
-        message: 'Connected wallet differs from saved wallet address', 
-        icon: <ErrorIcon /> 
-      };
-    }
-    
-    if (connected && savedWalletAddress) {
-      return { 
-        type: 'success', 
-        message: 'Wallet connected and saved to your account', 
-        icon: <CheckCircleIcon /> 
-      };
-    }
-    
-    if (connected && !savedWalletAddress) {
-      return { 
-        type: 'warning', 
-        message: 'Wallet connected but not saved to your account', 
-        icon: <InfoIcon /> 
-      };
-    }
-    
-    return { type: 'info', message: 'Ready to connect', icon: <InfoIcon /> };
-  };
-  
-  const walletStatus = getWalletStatus();
-  
+  }, [wallet]);
+
+  // Size configurations
+  const sizeConfig = useMemo(() => {
+    const configs = {
+      small: {
+        buttonHeight: 36,
+        fontSize: 14,
+        iconSize: 18,
+        spacing: 1
+      },
+      medium: {
+        buttonHeight: 48,
+        fontSize: 16,
+        iconSize: 20,
+        spacing: 2
+      },
+      large: {
+        buttonHeight: 56,
+        fontSize: 18,
+        iconSize: 24,
+        spacing: 3
+      }
+    };
+    return configs[size] || configs.medium;
+  }, [size]);
+
+  // Compact view
   if (compact) {
     return (
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, ...sx }}>
         <WalletMultiButton 
           style={{
             backgroundColor: connected ? '#4CAF50' : '#2a9d8f',

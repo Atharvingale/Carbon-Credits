@@ -16,8 +16,9 @@ import {
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
-import { checkUserWallet, getWalletRequirementMessage } from '../utils/walletUtils';
-import ConnectWallet from './ConnectWallet';
+import { useWalletRequirement } from '../hooks/useWallet';
+import ConnectWallet from './ConnectWallet_New';
+import walletService from '../services/walletService';
 
 /**
  * Component that checks wallet requirement and blocks actions if wallet not connected
@@ -82,7 +83,7 @@ export default function WalletRequirement({
     setWalletStatus(prev => ({ ...prev, loading: true }));
     
     try {
-      const result = await checkUserWallet(user.id);
+      const result = await walletService.checkWalletStatus(user.id, false);
       setWalletStatus({
         loading: false,
         hasWallet: result.hasWallet,
@@ -203,7 +204,7 @@ export default function WalletRequirement({
             Why is a wallet required?
           </Typography>
           <Typography variant="body2">
-            {getWalletRequirementMessage(context)}
+            {walletService.getRequirementMessage(context)}
           </Typography>
         </Alert>
 

@@ -223,7 +223,7 @@ const AdminDashboard = () => {
           project_start_date, project_end_date, tags,
           created_at, updated_at,
           profiles:user_id (
-            full_name, email
+            full_name, email, wallet_address
           ),
           reviewer:reviewed_by (
             full_name, email
@@ -608,20 +608,22 @@ const AdminDashboard = () => {
         return;
       }
       
-      // Check if user has provided wallet address
-      if (!project.wallet_address) {
-        showSnackbar('Cannot mint tokens: User has not provided a wallet address. Please ask the user to add their wallet address to their project.', 'error');
+      // Check if user has provided wallet address (check profile first, then project)
+      // Handle case where profiles might be null or undefined
+      const userWalletAddress = (project.profiles && project.profiles.wallet_address) || project.wallet_address;
+      if (!userWalletAddress) {
+        showSnackbar('Cannot mint tokens: User has not connected a wallet address. Please ask the user to connect their wallet in their profile.', 'error');
         return;
       }
       
       // Validate wallet address format (basic Solana address validation)
       const walletRegex = /^[A-Za-z0-9]{32,44}$/;
-      if (!walletRegex.test(project.wallet_address)) {
-        showSnackbar('Invalid wallet address format. Please verify the wallet address in the project details.', 'error');
+      if (!walletRegex.test(userWalletAddress)) {
+        showSnackbar('Invalid wallet address format. Please verify the wallet address in the user profile.', 'error');
         return;
       }
       
-      const recipientWallet = project.wallet_address;
+      const recipientWallet = userWalletAddress;
       
       // Use calculated credits (prioritize calculated over estimated for accuracy)
       let creditsToMint;
@@ -1136,6 +1138,23 @@ const AdminDashboard = () => {
   }
 
   function UsersTab() {
+    // Show helpful message when no users exist
+    if (!dataLoading.users && !dataErrors.users && allUsers.length === 0) {
+      return (
+        <Box sx={{ textAlign: 'center', py: 8 }}>
+          <Typography variant="h5" sx={{ color: '#ffffff', mb: 2 }}>
+            No Users Found
+          </Typography>
+          <Typography variant="body1" sx={{ color: '#a0aec0', mb: 4, maxWidth: '600px', mx: 'auto' }}>
+            There are no user accounts in the database yet. Users will appear here once they register through the application.
+          </Typography>
+          <Typography variant="body2" sx={{ color: '#a0aec0' }}>
+            👥 To get started: Go to the registration page and create user accounts
+          </Typography>
+        </Box>
+      );
+    }
+    
     return (
       <DataTable
         title="User Management"
@@ -1181,6 +1200,23 @@ const AdminDashboard = () => {
   }
 
   function ProjectsTab() {
+    // Show helpful message when no projects exist
+    if (!dataLoading.projects && !dataErrors.projects && allProjects.length === 0) {
+      return (
+        <Box sx={{ textAlign: 'center', py: 8 }}>
+          <Typography variant="h5" sx={{ color: '#ffffff', mb: 2 }}>
+            No Projects Found
+          </Typography>
+          <Typography variant="body1" sx={{ color: '#a0aec0', mb: 4, maxWidth: '600px', mx: 'auto' }}>
+            There are no projects in the database yet. Projects will appear here once users register, log in, and submit project proposals through the system.
+          </Typography>
+          <Typography variant="body2" sx={{ color: '#a0aec0' }}>
+            📄 To get started: Register as a user → Connect wallet → Create project
+          </Typography>
+        </Box>
+      );
+    }
+    
     // Generate dynamic actions based on project status
     const getProjectActions = (project) => {
       const actions = [
@@ -1215,7 +1251,10 @@ const AdminDashboard = () => {
           (project.calculated_credits || project.estimated_credits) && 
           project.status !== 'credits_minted') {
         
-        if (project.wallet_address) {
+        // Check wallet address from user's profile, not project
+        // Handle case where profiles might be null or undefined
+        const userWalletAddress = (project.profiles && project.profiles.wallet_address) || project.wallet_address;
+        if (userWalletAddress) {
           // User has wallet - show mint button
           actions.push({ 
             label: 'Mint Tokens', 
@@ -1229,7 +1268,7 @@ const AdminDashboard = () => {
             label: 'Wallet Required', 
             icon: <WarningIcon />, 
             onClick: (item) => showSnackbar(
-              `Cannot mint tokens for "${item.title}": User must provide a wallet address in their project submission.`, 
+              `Cannot mint tokens for "${item.title}": User must connect a wallet address in their profile.`, 
               'warning'
             ),
             color: '#ff9800'
@@ -1256,15 +1295,14 @@ const AdminDashboard = () => {
             />
           )},
           { field: 'status', headerName: 'Status', width: 140, render: (value) => {
-            let color = 'default';
             let bgcolor = '#2d3748';
             
             switch(value) {
-              case 'approved': color = 'success'; bgcolor = '#2e7d32'; break;
-              case 'pending': color = 'warning'; bgcolor = '#ed6c02'; break;
-              case 'rejected': color = 'error'; bgcolor = '#d32f2f'; break;
-              case 'credits_calculated': color = 'info'; bgcolor = '#0288d1'; break;
-              case 'credits_minted': bgcolor = '#00d4aa'; color = 'default'; break;
+              case 'approved': bgcolor = '#2e7d32'; break;
+              case 'pending': bgcolor = '#ed6c02'; break;
+              case 'rejected': bgcolor = '#d32f2f'; break;
+              case 'credits_calculated': bgcolor = '#0288d1'; break;
+              case 'credits_minted': bgcolor = '#00d4aa'; break;
               default: break;
             }
             
@@ -1289,17 +1327,21 @@ const AdminDashboard = () => {
           { field: 'credits_issued', headerName: 'Issued', width: 120, render: (value) => 
             value ? `${parseInt(value).toLocaleString()} CCR` : 'N/A'
           },
-          { field: 'wallet_address', headerName: 'Wallet Status', width: 120, render: (value) => {
-            if (value) {
+          { field: 'wallet_address', headerName: 'Wallet Status', width: 120, render: (value, row) => {
+            // Check wallet address from user's profile first, then project
+            const userWalletAddress = (row.profiles && row.profiles.wallet_address) || value;
+            
+            if (userWalletAddress) {
               return (
                 <Chip 
-                  label="✓ Provided" 
+                  label="✓ Connected" 
                   size="small" 
                   sx={{ 
                     bgcolor: '#4caf50',
                     color: '#ffffff',
                     fontWeight: 600
                   }}
+                  title={`Wallet: ${userWalletAddress.slice(0, 8)}...${userWalletAddress.slice(-6)}`}
                 />
               );
             } else {
@@ -1312,11 +1354,12 @@ const AdminDashboard = () => {
                     color: '#ffffff',
                     fontWeight: 600
                   }}
+                  title="User needs to connect wallet address"
                 />
               );
             }
           }},
-          { field: 'mint_address', headerName: 'Mint Address', width: 120, render: (value) => 
+          { field: 'mint_address', headerName: 'Mint Address', width: 120, render: (value) =>
             value ? `${value.slice(0, 6)}...${value.slice(-4)}` : 'N/A'
           },
           { field: 'organization_name', headerName: 'Organization', flex: 1 },
@@ -1532,7 +1575,7 @@ const AdminDashboard = () => {
                 <TableRow key={row.id || index} sx={{ '&:hover': { bgcolor: '#243447' } }}>
                   {columns.map((column) => (
                     <TableCell key={column.field} sx={{ color: '#ffffff', borderColor: '#2d3748' }}>
-                      {column.render ? column.render(row[column.field]) : (row[column.field] || 'N/A')}
+                      {column.render ? column.render(row[column.field], row) : (row[column.field] || 'N/A')}
                     </TableCell>
                   ))}
                   {(actions.length > 0 || getRowActions) && (

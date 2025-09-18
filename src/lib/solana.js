@@ -63,7 +63,8 @@ export const getTokenAccounts = async (connection, wallet) => {
   try {
     const tokenAccounts = await connection.getParsedTokenAccountsByOwner(
       wallet,
-      { programId: TOKEN_PROGRAM_ID }
+      { programId: TOKEN_PROGRAM_ID },
+      'confirmed'
     );
     return tokenAccounts.value.map(account => ({
       pubkey: account.pubkey,
