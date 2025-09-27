@@ -7,7 +7,6 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "prod": "NODE_ENV=production node server.js",
-    "test": "node test-server.js",
     "logs": "mkdir -p logs && tail -f logs/combined.log",
     "logs:error": "mkdir -p logs && tail -f logs/error.log"
   },

@@ -811,7 +811,7 @@ app.post('/mint',
           target_id: req.body.projectId,
           details: err.message,
           metadata: { error: err.message, duration }
-        }]).catch(console.error);
+        }]).catch(() => {});
       }
 
       res.status(500).json({ 
@@ -934,23 +934,6 @@ const server = app.listen(PORT, HOST, () => {
     timestamp: new Date().toISOString()
   });
   
-  console.log(`\n🚀 Blue Carbon MRV Server v${API_VERSION} running on http://${HOST}:${PORT}`);
-  console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
-  console.log(`🔗 CORS origin: ${corsOptions.origin}`);
-  console.log(`⛓️  Solana cluster: ${process.env.SOLANA_CLUSTER || 'devnet'}`);
-  console.log(`💰 Payer address: ${payer.publicKey.toString()}`);
-  console.log(`\n📋 Available endpoints:`);
-  console.log(`   GET  /health      - Health check`);
-  console.log(`   GET  /wallet      - Get user wallet`);
-  console.log(`   POST /wallet      - Save user wallet`);
-  console.log(`   DELETE /wallet    - Remove user wallet`);
-  console.log(`   POST /mint        - Mint carbon credit tokens (admin only)`);
-  console.log(`\n🔒 Security features enabled:`);
-  console.log(`   • Rate limiting (general: 100/15min, mint: 5/min)`);
-  console.log(`   • Request tracing and logging`);
-  console.log(`   • Input validation and sanitization`);
-  console.log(`   • CORS and security headers`);
-  console.log(`   • Admin authentication for minting\n`);
 });
 
 // Handle graceful shutdown

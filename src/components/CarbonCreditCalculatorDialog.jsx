@@ -18,6 +18,7 @@ import {
   Chip,
   Paper
 } from '@mui/material';
+import { supabase } from '../lib/supabaseClient';
 import {
   Close as CloseIcon,
   Calculate as CalculateIcon,
@@ -46,6 +47,30 @@ const CarbonCreditCalculatorDialog = ({
   const [validation, setValidation] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [userRole, setUserRole] = useState(null);
+
+  // Check user role when dialog opens
+  useEffect(() => {
+    const checkUserRole = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('role')
+            .eq('id', session.user.id)
+            .single();
+          setUserRole(profile?.role || 'user');
+        }
+      } catch (error) {
+        setUserRole('user'); // Default to user if error
+      }
+    };
+
+    if (open) {
+      checkUserRole();
+    }
+  }, [open]);
 
   useEffect(() => {
     const performCalculation = () => {
@@ -99,7 +124,6 @@ const CarbonCreditCalculatorDialog = ({
 
         setCalculation(result);
       } catch (err) {
-        console.error('Calculation error:', err);
         setError('Error calculating carbon credits: ' + err.message);
       } finally {
         setLoading(false);
@@ -404,23 +428,43 @@ const CarbonCreditCalculatorDialog = ({
                   </Grid>
                 </Paper>
 
-                <Alert 
-                  severity="success" 
-                  sx={{ 
-                    bgcolor: '#1b2d1b', 
-                    color: '#c8e6c9',
-                    '& .MuiAlert-icon': { color: '#4caf50' }
-                  }}
-                  icon={<CheckIcon />}
-                >
-                  <Typography variant="h6" sx={{ fontWeight: 600 }}>
-                    Ready to Mint Credits
-                  </Typography>
-                  <Typography>
-                    The calculation is complete and {calculation.totalCarbonCredits} carbon credits 
-                    can be minted for this project.
-                  </Typography>
-                </Alert>
+                {userRole === 'admin' ? (
+                  <Alert 
+                    severity="success" 
+                    sx={{ 
+                      bgcolor: '#1b2d1b', 
+                      color: '#c8e6c9',
+                      '& .MuiAlert-icon': { color: '#4caf50' }
+                    }}
+                    icon={<CheckIcon />}
+                  >
+                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                      Ready to Mint Credits
+                    </Typography>
+                    <Typography>
+                      The calculation is complete and {calculation.totalCarbonCredits} carbon credits 
+                      can be minted for this project.
+                    </Typography>
+                  </Alert>
+                ) : (
+                  <Alert 
+                    severity="info" 
+                    sx={{ 
+                      bgcolor: '#1b2d2d', 
+                      color: '#b3e5fc',
+                      '& .MuiAlert-icon': { color: '#29b6f6' }
+                    }}
+                    icon={<CheckIcon />}
+                  >
+                    <Typography variant="h6" sx={{ fontWeight: 600 }}>
+                      Calculation Complete
+                    </Typography>
+                    <Typography>
+                      Your project shows potential for {calculation.totalCarbonCredits} carbon credits. 
+                      An administrator will review and mint tokens after project approval.
+                    </Typography>
+                  </Alert>
+                )}
               </>
             )}
           </>
@@ -434,7 +478,7 @@ const CarbonCreditCalculatorDialog = ({
         >
           Close
         </Button>
-        {calculation && (
+        {calculation && userRole === 'admin' && (
           <Button
             variant="contained"
             onClick={handleMintCredits}
@@ -450,6 +494,29 @@ const CarbonCreditCalculatorDialog = ({
             }}
           >
             Mint {calculation.totalCarbonCredits} Credits
+          </Button>
+        )}
+        {calculation && userRole !== 'admin' && (
+          <Button
+            variant="outlined"
+            onClick={() => {
+              if (onCreditCalculated) {
+                onCreditCalculated(calculation.totalCarbonCredits, calculation);
+              }
+              onClose();
+            }}
+            sx={{
+              borderColor: '#00d4aa',
+              color: '#00d4aa',
+              fontWeight: 600,
+              px: 3,
+              '&:hover': {
+                bgcolor: 'rgba(0,212,170,0.1)',
+                borderColor: '#00d4aa'
+              }
+            }}
+          >
+            Save Calculation
           </Button>
         )}
       </DialogActions>

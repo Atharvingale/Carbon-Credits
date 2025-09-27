@@ -222,11 +222,9 @@ class WalletService {
         return result;
       } else {
         // API failed, fallback to direct database check
-        console.warn('Wallet API unavailable, checking database directly');
         return this._checkWalletFromDB(userId, cacheKey);
       }
     } catch (error) {
-      console.warn('Wallet API error, falling back to database:', error.message);
       return this._checkWalletFromDB(userId, cacheKey);
     }
   }
@@ -274,7 +272,6 @@ class WalletService {
       this.setCache(cacheKey, result);
       return result;
     } catch (error) {
-      console.error('Database wallet check error:', error);
       return {
         hasWallet: false,
         walletAddress: null,
@@ -333,7 +330,6 @@ class WalletService {
         };
       }
     } catch (error) {
-      console.error('Connect wallet error:', error);
       return {
         success: false,
         error: 'Failed to connect to wallet service'
@@ -372,7 +368,6 @@ class WalletService {
         };
       }
     } catch (error) {
-      console.error('Disconnect wallet error:', error);
       return {
         success: false,
         error: 'Failed to connect to wallet service'

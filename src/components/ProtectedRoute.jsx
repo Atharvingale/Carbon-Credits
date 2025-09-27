@@ -16,23 +16,19 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
         // Get current session
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
-        console.log('ProtectedRoute - Session check:', { session: !!session, error: sessionError });
         
         if (sessionError) {
-          console.error('Session error:', sessionError);
           setUser(null);
           setLoading(false);
           return;
         }
 
         if (!session || !session.user) {
-          console.log('ProtectedRoute - No session found, redirecting to login');
           setUser(null);
           setLoading(false);
           return;
         }
 
-        console.log('ProtectedRoute - User authenticated:', session.user.email);
         setUser(session.user);
 
         // Always check user role for proper routing
@@ -43,7 +39,6 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
           .single();
 
         if (profileError) {
-          console.error('Profile error:', profileError);
           setLoading(false);
           return;
         }
@@ -51,9 +46,8 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
         const role = profile?.role;
         setIsAdmin(role === 'admin');
         
-        console.log('ProtectedRoute - User role:', role, 'Is admin:', role === 'admin');
       } catch (error) {
-        console.error('Auth check error:', error);
+        // Auth check failed
         } finally {
           setLoading(false);
           setAuthChecked(true);
@@ -64,14 +58,11 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      console.log('ProtectedRoute - Auth state change:', { event, hasSession: !!session });
       
       if (event === 'SIGNED_OUT') {
-        console.log('ProtectedRoute - User signed out');
         setUser(null);
         setIsAdmin(false);
       } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        console.log('ProtectedRoute - User signed in/token refreshed');
         setUser(session?.user || null);
         // Re-check admin status if needed
         if (adminOnly && session?.user) {
@@ -106,11 +97,6 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
 
   // Redirect to login if not authenticated and auth check is complete
   if (authChecked && !user) {
-    console.log('ProtectedRoute - Redirecting to login (no user)', { 
-      path: location.pathname,
-      authChecked,
-      user: !!user 
-    });
     return <Navigate to={`/login?redirect=${encodeURIComponent(location.pathname)}`} replace />;
   }
 
@@ -137,13 +123,11 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
 
   // Handle admin-only routes
   if (adminOnly && !isAdmin) {
-    console.log('ProtectedRoute - Admin access required but user is not admin, redirecting to dashboard');
     return <Navigate to="/dashboard" replace />;
   }
   
   // Handle admin users trying to access regular dashboard - redirect them to admin dashboard
   if (!adminOnly && isAdmin && location.pathname === '/dashboard') {
-    console.log('ProtectedRoute - Admin user trying to access regular dashboard, redirecting to admin');
     return <Navigate to="/admin" replace />;
   }
 

@@ -37,7 +37,6 @@ import {
 import ProjectDetailDialog from '../components/ProjectDetailDialog';
 import CarbonCreditCalculatorDialog from '../components/CarbonCreditCalculatorDialog';
 import ConnectWallet from '../components/ConnectWallet_New';
-import { walletDatabaseTest } from '../utils/walletDatabaseTest';
 
 const UserDashboard = () => {
   const navigate = useNavigate();
@@ -92,8 +91,6 @@ const UserDashboard = () => {
   const [calculatorDialog, setCalculatorDialog] = useState({ open: false, project: null });
   const [walletDialog, setWalletDialog] = useState({ open: false });
   const [walletAddress, setWalletAddress] = useState('');
-  const [walletTestResults, setWalletTestResults] = useState(null);
-  const [testingWallet, setTestingWallet] = useState(false);
   
   // Utility functions
   const showSnackbar = useCallback((message, severity = 'info') => {
@@ -132,7 +129,6 @@ const UserDashboard = () => {
     setErrorState('projects', null);
     
     try {
-      console.log('📁 Fetching user projects...');
       const { data, error } = await supabase
         .from('projects')
         .select(`
@@ -151,8 +147,6 @@ const UserDashboard = () => {
       
       if (error) throw error;
       
-      console.log(`✅ Loaded ${data?.length || 0} user projects`);
-      
       // Normalize projects and calculate estimated credits where missing
       const normalizedProjects = (data || []).map(project => {
         const normalized = normalizeProject(project);
@@ -165,7 +159,6 @@ const UserDashboard = () => {
               const calculation = calculateProjectCredits(normalized.carbon_data, normalized.project_area);
               if (calculation) {
                 normalized.estimated_credits = calculation.totalCarbonCredits;
-                console.log(`🧮 Calculated estimated credits for project ${normalized.title}: ${calculation.totalCarbonCredits}`);
                 
                 // Update the database with estimated credits (async)
                 supabase
@@ -173,11 +166,11 @@ const UserDashboard = () => {
                   .update({ estimated_credits: calculation.totalCarbonCredits })
                   .eq('id', normalized.id)
                   .then(({ error }) => {
-                    if (error) console.warn('Failed to update estimated credits:', error);
+                    // Silently handle update errors
                   });
               }
             } catch (calcError) {
-              console.warn(`Failed to calculate estimated credits for project ${normalized.id}:`, calcError);
+              // Silently handle calculation errors
             }
           }
         }
@@ -188,7 +181,6 @@ const UserDashboard = () => {
       setUserProjects(normalizedProjects);
       
     } catch (error) {
-      console.error('❌ Projects fetch error:', error);
       const errorMessage = error.code === '42P01'
         ? 'Projects table not found. Please contact system administrator.'
         : `Failed to fetch projects: ${error.message}`;
@@ -207,7 +199,6 @@ const UserDashboard = () => {
     setErrorState('tokens', null);
     
     try {
-      console.log('🪙 Fetching user tokens...');
       const { data, error } = await supabase
         .from('tokens')
         .select(`
@@ -227,11 +218,9 @@ const UserDashboard = () => {
         token.projects && token.projects.user_id === userId
       );
       
-      console.log(`✅ Loaded ${userTokens.length} user tokens`);
       setUserTokens(userTokens);
       
     } catch (error) {
-      console.error('❌ Tokens fetch error:', error);
       const errorMessage = error.code === '42P01'
         ? 'Token system not available yet.'
         : `Failed to fetch tokens: ${error.message}`;
@@ -275,7 +264,6 @@ const UserDashboard = () => {
       estimatedValue
     };
     
-    console.log('✅ Dashboard statistics calculated:', stats);
     setDashboardStats(stats);
   }, [userProjects, userTokens]);
 
@@ -285,15 +273,12 @@ const UserDashboard = () => {
     
     setRefreshing(true);
     try {
-      console.log('🔄 Refreshing all user dashboard data...');
       await Promise.allSettled([
         fetchUserProjects(user.id),
         fetchUserTokens(user.id)
       ]);
-      console.log('✅ All data refreshing completed');
       showSnackbar('Dashboard refreshed successfully', 'success');
     } catch (error) {
-      console.error('Refresh failed:', error);
       showSnackbar('Failed to refresh dashboard', 'error');
     } finally {
       setRefreshing(false);
@@ -308,7 +293,6 @@ const UserDashboard = () => {
         const { data: { session }, error: sessionError } = await supabase.auth.getSession();
         
         if (sessionError) {
-          console.error('Session error:', sessionError);
           showSnackbar('Authentication error occurred', 'error');
           navigate('/login');
           return;
@@ -329,7 +313,6 @@ const UserDashboard = () => {
           .single();
         
         if (profileError) {
-          console.error('Profile fetch error:', profileError);
           showSnackbar('Failed to load user profile', 'error');
           return;
         }
@@ -343,7 +326,6 @@ const UserDashboard = () => {
         ]);
         
       } catch (error) {
-        console.error('Initialization failed:', error);
         showSnackbar('Failed to initialize dashboard', 'error');
       } finally {
         setLoading(false);
@@ -366,7 +348,6 @@ const UserDashboard = () => {
       await supabase.auth.signOut();
       navigate('/login');
     } catch (error) {
-      console.error('Error logging out:', error);
       showSnackbar('Error logging out', 'error');
     }
   }, [navigate, showSnackbar]);
@@ -381,12 +362,10 @@ const UserDashboard = () => {
 
   // Project handlers
   const handleProjectView = useCallback((project) => {
-    console.log('Opening project view for:', project.title);
     setProjectDetailDialog({ open: true, project });
   }, []);
 
   const handleProjectCalculate = useCallback((project) => {
-    console.log('Opening calculator for:', project.title);
     setCalculatorDialog({ open: true, project });
   }, []);
 
@@ -407,7 +386,7 @@ const UserDashboard = () => {
       return;
     }
     
-    // Basic wallet address validation (Solana format)
+    // Solana wallet address validation
     const walletRegex = /^[A-Za-z0-9]{32,44}$/;
     if (!walletRegex.test(walletAddress.trim())) {
       showSnackbar('Invalid wallet address format', 'error');
@@ -427,52 +406,9 @@ const UserDashboard = () => {
       setWalletAddress('');
       showSnackbar('Wallet address connected successfully!', 'success');
     } catch (error) {
-      console.error('Error updating wallet:', error);
       showSnackbar(`Failed to connect wallet: ${error.message}`, 'error');
     }
   }, [walletAddress, user, showSnackbar]);
-
-  // Wallet testing handler
-  const handleWalletTest = useCallback(async () => {
-    if (!user) {
-      showSnackbar('Please log in to test wallet functionality', 'error');
-      return;
-    }
-
-    setTestingWallet(true);
-    setWalletTestResults(null);
-
-    try {
-      // Get user's auth token
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('No active session');
-      }
-
-      // Generate a test wallet address for testing purposes
-      const testWalletAddress = userProfile?.wallet_address || 'HN7cABqLq46Es1jh92dQQisAq662SmxELLLsHHe4YWrH';
-
-      // Run comprehensive wallet test
-      const results = await walletDatabaseTest.runFullTest(
-        user.id,
-        session.access_token,
-        testWalletAddress
-      );
-
-      setWalletTestResults(results);
-
-      if (results.summary.success) {
-        showSnackbar(`Wallet test passed! (${results.summary.passed}/${results.summary.total} tests)`, 'success');
-      } else {
-        showSnackbar(`Wallet test failed: ${results.summary.passed}/${results.summary.total} tests passed`, 'warning');
-      }
-    } catch (error) {
-      console.error('Wallet test failed:', error);
-      showSnackbar(`Wallet test error: ${error.message}`, 'error');
-    } finally {
-      setTestingWallet(false);
-    }
-  }, [user, userProfile, showSnackbar]);
 
   // Loading screen
   if (loading) {
@@ -485,7 +421,7 @@ const UserDashboard = () => {
         justifyContent: 'center' 
       }}>
         <Stack spacing={2} alignItems="center">
-          <CircularProgress size={60} sx={{ color: '#00d4aa' }} />
+          <CircularProgress size={60} sx={{ color: '#94a3b8' }} />
           <Typography variant="h6" sx={{ color: '#ffffff' }}>
             Loading Dashboard...
           </Typography>
@@ -563,17 +499,17 @@ const UserDashboard = () => {
               }}
             >
               <MenuItem onClick={() => navigate('/')}>
-                <ListItemIcon><HomeIcon sx={{ color: '#00d4aa' }} /></ListItemIcon>
+                <ListItemIcon><HomeIcon sx={{ color: '#94a3b8' }} /></ListItemIcon>
                 <ListItemText>Home</ListItemText>
               </MenuItem>
               {userProfile?.role === 'admin' && (
                 <MenuItem onClick={() => navigate('/admin')}>
-                  <ListItemIcon><AdminIcon sx={{ color: '#00d4aa' }} /></ListItemIcon>
+                  <ListItemIcon><AdminIcon sx={{ color: '#94a3b8' }} /></ListItemIcon>
                   <ListItemText>Admin Dashboard</ListItemText>
                 </MenuItem>
               )}
               <MenuItem onClick={() => setWalletDialog({ open: true })}>
-                <ListItemIcon><WalletIcon sx={{ color: '#00d4aa' }} /></ListItemIcon>
+                <ListItemIcon><WalletIcon sx={{ color: '#94a3b8' }} /></ListItemIcon>
                 <ListItemText>Connect Wallet</ListItemText>
               </MenuItem>
               <Divider sx={{ bgcolor: '#2d3748' }} />
@@ -641,69 +577,78 @@ const UserDashboard = () => {
           </Grid>
         </Grid>
 
-        {/* Wallet Connection Section */}
-        <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3748', mb: 4 }}>
-          <CardContent sx={{ p: 3 }}>
-            <Typography variant="h6" sx={{ color: '#ffffff', mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <WalletIcon sx={{ color: '#00d4aa' }} />
-              Wallet Connection
-            </Typography>
-            <Typography variant="body2" sx={{ color: '#a0aec0', mb: 3 }}>
-              Connect your Solana wallet to receive carbon credit tokens and perform blockchain operations.
-            </Typography>
-            <ConnectWallet
-              showSaveButton={true}
-              showDetails={true}
-              autoSave={false}
-              size="medium"
-              onWalletSaved={() => {
-                showSnackbar('Wallet connected successfully!', 'success');
-                refreshAllData();
-              }}
-            />
-            
-            {/* Wallet Test Button */}
-            <Box sx={{ mt: 3, pt: 3, borderTop: '1px solid #2d3748' }}>
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Typography variant="body2" sx={{ color: '#a0aec0' }}>
-                  Test wallet database integration
+        {/* Creative Welcome Banner */}
+        <Card sx={{ 
+          bgcolor: 'linear-gradient(135deg, #1a2332 0%, #0f2027 50%, #203a43 100%)', 
+          border: '1px solid #2d3748', 
+          mb: 4,
+          position: 'relative',
+          overflow: 'hidden'
+        }}>
+          <Box sx={{
+            position: 'absolute',
+            top: 0,
+            right: 0,
+            width: '200px',
+            height: '200px',
+            background: 'radial-gradient(circle, rgba(0,212,170,0.1) 0%, transparent 70%)',
+            borderRadius: '50%',
+            transform: 'translate(50%, -50%)'
+          }} />
+          <CardContent sx={{ p: 4, position: 'relative' }}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between">
+              <Box>
+                <Typography variant="h4" sx={{ 
+                  color: '#ffffff', 
+                  fontWeight: 700,
+                  background: 'linear-gradient(45deg, #00d4aa, #4fc3f7)',
+                  backgroundClip: 'text',
+                  WebkitBackgroundClip: 'text',
+                  WebkitTextFillColor: 'transparent',
+                  mb: 1
+                }}>
+                  🌱 Carbon Impact Dashboard
                 </Typography>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={handleWalletTest}
-                  disabled={testingWallet}
-                  startIcon={testingWallet ? <CircularProgress size={16} /> : <VerifiedIcon />}
-                  sx={{
-                    color: '#00d4aa',
-                    borderColor: '#00d4aa',
-                    '&:hover': {
-                      borderColor: '#00d4aa',
-                      bgcolor: 'rgba(0, 212, 170, 0.1)'
-                    }
-                  }}
-                >
-                  {testingWallet ? 'Testing...' : 'Test Database'}
-                </Button>
-              </Stack>
-              
-              {/* Test Results */}
-              {walletTestResults && (
-                <Alert
-                  severity={walletTestResults.summary.success ? 'success' : 'warning'}
-                  sx={{ mt: 2 }}
-                >
-                  <Typography variant="body2" gutterBottom>
-                    Database Test Results: {walletTestResults.summary.passed}/{walletTestResults.summary.total} tests passed
-                  </Typography>
-                  {!walletTestResults.summary.success && (
-                    <Typography variant="caption" display="block">
-                      Check browser console for detailed error information.
-                    </Typography>
-                  )}
-                </Alert>
-              )}
-            </Box>
+                <Typography variant="h6" sx={{ color: '#a0aec0', mb: 2 }}>
+                  Making a difference, one credit at a time
+                </Typography>
+                <Stack direction="row" spacing={3}>
+                  <Chip 
+                    icon={<EcoIcon />} 
+                    label={`${dashboardStats.totalProjects} Projects`} 
+                    sx={{ 
+                      bgcolor: 'rgba(0,212,170,0.2)', 
+                      color: '#00d4aa',
+                      border: '1px solid #00d4aa'
+                    }} 
+                  />
+                  <Chip 
+                    icon={<Token />} 
+                    label={`${Math.floor(dashboardStats.totalCredits).toLocaleString()} Credits`} 
+                    sx={{ 
+                      bgcolor: 'rgba(33,150,243,0.2)', 
+                      color: '#2196f3',
+                      border: '1px solid #2196f3'
+                    }} 
+                  />
+                </Stack>
+              </Box>
+              <Box sx={{ textAlign: 'center' }}>
+                <Box sx={{
+                  width: 80,
+                  height: 80,
+                  borderRadius: '50%',
+                  background: 'linear-gradient(45deg, #00d4aa, #4fc3f7)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: '2rem',
+                  animation: 'pulse 2s infinite'
+                }}>
+                  🌍
+                </Box>
+              </Box>
+            </Stack>
           </CardContent>
         </Card>
 
@@ -716,9 +661,9 @@ const UserDashboard = () => {
               borderBottom: '1px solid #2d3748',
               '& .MuiTab-root': { 
                 color: '#a0aec0',
-                '&.Mui-selected': { color: '#00d4aa' }
+                '&.Mui-selected': { color: '#cbd5e1' }
               },
-              '& .MuiTabs-indicator': { bgcolor: '#00d4aa' }
+              '& .MuiTabs-indicator': { bgcolor: '#64748b' }
             }}
           >
             <Tab label="Overview" icon={<DashboardIcon />} />
@@ -791,7 +736,7 @@ const UserDashboard = () => {
           </Button>
           <Button 
             onClick={handleWalletConnect} 
-            sx={{ color: '#00d4aa' }}
+            sx={{ color: '#94a3b8' }}
             variant="outlined"
           >
             Connect Wallet
@@ -854,41 +799,98 @@ const StatsCard = ({ title, value, subtitle, icon, color, loading, error }) => {
 
     return (
       <Card sx={{ 
-        bgcolor: '#1a2332', 
+        bgcolor: 'linear-gradient(135deg, #1a2332 0%, #243447 100%)', 
         border: '1px solid #2d3748',
-        height: 140,
+        height: 160,
         position: 'relative',
-        overflow: 'hidden'
+        overflow: 'hidden',
+        cursor: 'pointer',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        '&:hover': {
+          transform: 'translateY(-4px) scale(1.02)',
+          boxShadow: `0 10px 25px rgba(${color === '#00d4aa' ? '0,212,170' : color === '#2196f3' ? '33,150,243' : color === '#ffa726' ? '255,167,38' : '156,39,176'}, 0.3)`,
+          border: `1px solid ${color}40`
+        }
       }}>
-        <CardContent>
+        {/* Animated background particles */}
+        <Box sx={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: `radial-gradient(circle at 20% 50%, ${color}10 0%, transparent 50%)`,
+          opacity: 0.6
+        }} />
+        
+        {/* Floating decorative element */}
+        <Box sx={{
+          position: 'absolute',
+          top: -20,
+          right: -20,
+          width: 60,
+          height: 60,
+          borderRadius: '50%',
+          background: `linear-gradient(45deg, ${color}30, transparent)`,
+          animation: 'float 3s ease-in-out infinite'
+        }} />
+        
+        <CardContent sx={{ position: 'relative', zIndex: 2 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="flex-start">
             <Box>
-              <Typography variant="body2" sx={{ color: '#a0aec0', mb: 1 }}>
+              <Typography variant="body2" sx={{ 
+                color: '#a0aec0', 
+                mb: 1,
+                fontWeight: 500,
+                letterSpacing: 0.5
+              }}>
                 {title}
               </Typography>
-              <Typography variant="h4" sx={{ color: '#ffffff', fontWeight: 700, mb: 0.5 }}>
+              <Typography variant="h3" sx={{ 
+                color: '#ffffff', 
+                fontWeight: 700, 
+                mb: 0.5,
+                background: `linear-gradient(45deg, ${color}, ${color}80)`,
+                backgroundClip: 'text',
+                WebkitBackgroundClip: 'text',
+                WebkitTextFillColor: 'transparent'
+              }}>
                 {typeof value === 'number' ? value.toLocaleString() : value}
               </Typography>
               {subtitle && (
-                <Typography variant="caption" sx={{ color: '#a0aec0' }}>
-                  {subtitle}
+                <Typography variant="caption" sx={{ 
+                  color: '#a0aec0',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.5
+                }}>
+                  • {subtitle}
                 </Typography>
               )}
             </Box>
-            <Avatar sx={{ bgcolor: `${color}20`, color }}>
-              {icon}
-            </Avatar>
+            <Box sx={{
+              p: 1.5,
+              borderRadius: 2,
+              background: `linear-gradient(135deg, ${color}20, ${color}10)`,
+              border: `1px solid ${color}30`,
+              backdropFilter: 'blur(10px)'
+            }}>
+              <Box sx={{ color: color, fontSize: '1.75rem' }}>
+                {icon}
+              </Box>
+            </Box>
           </Stack>
         </CardContent>
         
-        {/* Decorative gradient */}
+        {/* Enhanced decorative gradient with pulse effect */}
         <Box sx={{
           position: 'absolute',
           bottom: 0,
           left: 0,
           right: 0,
-          height: 4,
-          background: `linear-gradient(90deg, transparent, ${color})`
+          height: 6,
+          background: `linear-gradient(90deg, ${color}60, ${color}, ${color}60)`,
+          animation: 'glow 2s ease-in-out infinite alternate'
         }} />
       </Card>
     );
@@ -898,69 +900,374 @@ const StatsCard = ({ title, value, subtitle, icon, color, loading, error }) => {
 const OverviewTab = ({ dashboardStats, userProfile, formatDate }) => {
     return (
       <Box>
-        <Typography variant="h6" sx={{ color: '#ffffff', mb: 3 }}>
-          Dashboard Overview
-        </Typography>
+        <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 4 }}>
+          <Box sx={{
+            width: 40,
+            height: 40,
+            borderRadius: '50%',
+            background: 'linear-gradient(45deg, #00d4aa, #4fc3f7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1.5rem'
+          }}>
+            📈
+          </Box>
+          <Box>
+            <Typography variant="h5" sx={{ 
+              color: '#ffffff', 
+              fontWeight: 700,
+              background: 'linear-gradient(45deg, #00d4aa, #4fc3f7)',
+              backgroundClip: 'text',
+              WebkitBackgroundClip: 'text',
+              WebkitTextFillColor: 'transparent'
+            }}>
+              Environmental Impact Overview
+            </Typography>
+            <Typography variant="body2" sx={{ color: '#a0aec0' }}>
+              Track your carbon credit journey and environmental contributions
+            </Typography>
+          </Box>
+        </Stack>
         
         <Grid container spacing={3}>
-          {/* Project Status Summary */}
+          {/* Enhanced Project Portfolio */}
           <Grid item xs={12} md={6}>
-            <Card sx={{ bgcolor: '#243447', border: '1px solid #2d3748' }}>
-              <CardContent>
-                <Typography variant="h6" sx={{ color: '#ffffff', mb: 2 }}>
-                  Project Portfolio
-                </Typography>
-                <Stack spacing={2}>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography sx={{ color: '#a0aec0' }}>Total Projects:</Typography>
-                    <Typography sx={{ color: '#ffffff', fontWeight: 600 }}>{dashboardStats.totalProjects}</Typography>
+            <Card sx={{ 
+              background: 'linear-gradient(135deg, #334155 0%, #1e293b 100%)', 
+              border: '1px solid #475569',
+              position: 'relative',
+              overflow: 'hidden'
+            }}>
+              <Box sx={{
+                position: 'absolute',
+                top: 0,
+                right: 0,
+                width: '150px',
+                height: '150px',
+                background: 'radial-gradient(circle, rgba(148,163,184,0.05) 0%, transparent 70%)',
+                borderRadius: '50%',
+                transform: 'translate(50%, -50%)'
+              }} />
+              <CardContent sx={{ position: 'relative' }}>
+                <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+                  <Avatar sx={{ 
+                    bgcolor: 'rgba(148,163,184,0.2)', 
+                    color: '#94a3b8',
+                    border: '2px solid rgba(148,163,184,0.3)'
+                  }}>
+                    <EcoIcon />
+                  </Avatar>
+                  <Typography variant="h6" sx={{ color: '#f1f5f9', fontWeight: 600 }}>
+                    🌱 Project Portfolio
+                  </Typography>
+                </Stack>
+                
+                <Stack spacing={3}>
+                  <Box sx={{ 
+                    p: 2, 
+                    borderRadius: 2, 
+                    background: 'linear-gradient(135deg, rgba(148,163,184,0.1), rgba(148,163,184,0.05))',
+                    border: '1px solid rgba(148,163,184,0.3)'
+                  }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                      <Typography sx={{ color: '#94a3b8', fontWeight: 500 }}>Total Projects</Typography>
+                      <Typography variant="h5" sx={{ color: '#cbd5e1', fontWeight: 700 }}>
+                        {dashboardStats.totalProjects}
+                      </Typography>
+                    </Stack>
                   </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography sx={{ color: '#a0aec0' }}>Pending Review:</Typography>
-                    <Typography sx={{ color: '#ffa726', fontWeight: 600 }}>{dashboardStats.pendingProjects}</Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography sx={{ color: '#a0aec0' }}>Approved:</Typography>
-                    <Typography sx={{ color: '#4caf50', fontWeight: 600 }}>{dashboardStats.approvedProjects}</Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <Typography sx={{ color: '#a0aec0' }}>Potential Credits:</Typography>
-                    <Typography sx={{ color: '#00d4aa', fontWeight: 600 }}>{Math.floor(dashboardStats.totalCredits).toLocaleString()} CCR</Typography>
+                  
+                  <Stack direction="row" spacing={2}>
+                    <Box sx={{ 
+                      flex: 1, 
+                      p: 2, 
+                      borderRadius: 2, 
+                      background: 'linear-gradient(135deg, rgba(120,113,108,0.1), rgba(120,113,108,0.05))',
+                      border: '1px solid rgba(120,113,108,0.3)',
+                      textAlign: 'center'
+                    }}>
+                      <Typography variant="h6" sx={{ color: '#a8a29e', fontWeight: 700 }}>
+                        {dashboardStats.pendingProjects}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#94a3b8' }}>
+                        Pending
+                      </Typography>
+                    </Box>
+                    <Box sx={{ 
+                      flex: 1, 
+                      p: 2, 
+                      borderRadius: 2, 
+                      background: 'linear-gradient(135deg, rgba(134,239,172,0.1), rgba(134,239,172,0.05))',
+                      border: '1px solid rgba(134,239,172,0.3)',
+                      textAlign: 'center'
+                    }}>
+                      <Typography variant="h6" sx={{ color: '#86efac', fontWeight: 700 }}>
+                        {dashboardStats.approvedProjects}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: '#94a3b8' }}>
+                        Approved
+                      </Typography>
+                    </Box>
+                  </Stack>
+                  
+                  <Box sx={{ 
+                    p: 2, 
+                    borderRadius: 2, 
+                    background: 'linear-gradient(135deg, rgba(100,116,139,0.1), rgba(100,116,139,0.05))',
+                    border: '1px solid rgba(100,116,139,0.3)'
+                  }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="center">
+                      <Typography sx={{ color: '#94a3b8', fontWeight: 500 }}>Potential Credits</Typography>
+                      <Typography variant="h6" sx={{ color: '#cbd5e1', fontWeight: 700 }}>
+                        {Math.floor(dashboardStats.totalCredits).toLocaleString()} CCR
+                      </Typography>
+                    </Stack>
                   </Box>
                 </Stack>
               </CardContent>
             </Card>
           </Grid>
           
-          {/* Account Status */}
+          {/* Enhanced Account Status */}
           <Grid item xs={12} md={6}>
-            <Card sx={{ bgcolor: '#243447', border: '1px solid #2d3748' }}>
-              <CardContent>
-                <Typography variant="h6" sx={{ color: '#ffffff', mb: 2 }}>
-                  Account Status
-                </Typography>
-                <Stack spacing={2}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <CheckCircleIcon sx={{ color: '#4caf50' }} />
-                    <Typography sx={{ color: '#ffffff' }}>Account Verified</Typography>
+            <Card sx={{ 
+              background: 'linear-gradient(135deg, #334155 0%, #1e293b 100%)', 
+              border: '1px solid #475569',
+              position: 'relative',
+              overflow: 'hidden'
+            }}>
+              <Box sx={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '150px',
+                height: '150px',
+                background: 'radial-gradient(circle, rgba(100,116,139,0.05) 0%, transparent 70%)',
+                borderRadius: '50%',
+                transform: 'translate(-50%, -50%)'
+              }} />
+              <CardContent sx={{ position: 'relative' }}>
+                <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+                  <Avatar sx={{ 
+                    bgcolor: 'rgba(100,116,139,0.2)', 
+                    color: '#64748b',
+                    border: '2px solid rgba(100,116,139,0.3)'
+                  }}>
+                    <PersonIcon />
+                  </Avatar>
+                  <Typography variant="h6" sx={{ color: '#f1f5f9', fontWeight: 600 }}>
+                    👤 Account Status
+                  </Typography>
+                </Stack>
+                
+                <Stack spacing={3}>
+                  <Box sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: 2,
+                    p: 2,
+                    borderRadius: 2,
+                    background: 'linear-gradient(135deg, rgba(134,239,172,0.1), rgba(134,239,172,0.05))',
+                    border: '1px solid rgba(134,239,172,0.3)'
+                  }}>
+                    <Box sx={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
+                      background: 'linear-gradient(45deg, #86efac, #bbf7d0)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      <VerifiedIcon sx={{ color: '#1e293b', fontSize: '1rem' }} />
+                    </Box>
+                    <Box>
+                      <Typography sx={{ color: '#f1f5f9', fontWeight: 600 }}>Account Verified</Typography>
+                      <Typography variant="caption" sx={{ color: '#86efac' }}>Active & Ready</Typography>
+                    </Box>
                   </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    {userProfile?.wallet_address ? (
-                      <CheckCircleIcon sx={{ color: '#4caf50' }} />
-                    ) : (
-                      <WarningIcon sx={{ color: '#ffa726' }} />
-                    )}
-                    <Typography sx={{ color: '#ffffff' }}>
-                      Wallet {userProfile?.wallet_address ? 'Connected' : 'Not Connected'}
+                  
+                  <Box sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: 2,
+                    p: 2,
+                    borderRadius: 2,
+                    background: userProfile?.wallet_address 
+                      ? 'linear-gradient(135deg, rgba(134,239,172,0.1), rgba(134,239,172,0.05))'
+                      : 'linear-gradient(135deg, rgba(168,162,158,0.1), rgba(168,162,158,0.05))',
+                    border: userProfile?.wallet_address ? '1px solid rgba(134,239,172,0.3)' : '1px solid rgba(168,162,158,0.3)'
+                  }}>
+                    <Box sx={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
+                      background: userProfile?.wallet_address 
+                        ? 'linear-gradient(45deg, #86efac, #bbf7d0)'
+                        : 'linear-gradient(45deg, #a8a29e, #d6d3d1)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      {userProfile?.wallet_address ? (
+                        <WalletIcon sx={{ color: '#1e293b', fontSize: '1rem' }} />
+                      ) : (
+                        <WarningIcon sx={{ color: '#1e293b', fontSize: '1rem' }} />
+                      )}
+                    </Box>
+                    <Box>
+                      <Typography sx={{ color: '#f1f5f9', fontWeight: 600 }}>
+                        Wallet {userProfile?.wallet_address ? 'Connected' : 'Not Connected'}
+                      </Typography>
+                      <Typography variant="caption" sx={{ 
+                        color: userProfile?.wallet_address ? '#86efac' : '#a8a29e' 
+                      }}>
+                        {userProfile?.wallet_address ? 'Ready for Tokens' : 'Setup Required'}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  
+                  <Box sx={{ 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    gap: 2,
+                    p: 2,
+                    borderRadius: 2,
+                    background: 'linear-gradient(135deg, rgba(100,116,139,0.1), rgba(100,116,139,0.05))',
+                    border: '1px solid rgba(100,116,139,0.3)'
+                  }}>
+                    <Box sx={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
+                      background: 'linear-gradient(45deg, #64748b, #94a3b8)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}>
+                      🎉
+                    </Box>
+                    <Box>
+                      <Typography sx={{ color: '#f1f5f9', fontWeight: 600 }}>Member Since</Typography>
+                      <Typography variant="caption" sx={{ color: '#94a3b8' }}>
+                        {formatDate(userProfile?.created_at)}
+                      </Typography>
+                    </Box>
+                  </Box>
+                </Stack>
+              </CardContent>
+            </Card>
+          </Grid>
+          
+          {/* New Environmental Impact Summary */}
+          <Grid item xs={12}>
+            <Card sx={{ 
+              background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 50%, #334155 100%)', 
+              border: '1px solid #475569',
+              position: 'relative',
+              overflow: 'hidden'
+            }}>
+              <Box sx={{
+                position: 'absolute',
+                top: '50%',
+                right: 0,
+                width: '300px',
+                height: '300px',
+                background: 'radial-gradient(circle, rgba(148,163,184,0.03) 0%, transparent 70%)',
+                borderRadius: '50%',
+                transform: 'translate(50%, -50%)'
+              }} />
+              <CardContent sx={{ position: 'relative', p: 4 }}>
+                <Stack direction="row" alignItems="center" spacing={2} sx={{ mb: 3 }}>
+                  <Box sx={{
+                    width: 50,
+                    height: 50,
+                    borderRadius: '50%',
+                    background: 'linear-gradient(45deg, #475569, #64748b)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '1.5rem'
+                  }}>
+                    🌍
+                  </Box>
+                  <Box>
+                    <Typography variant="h5" sx={{ 
+                      color: '#f1f5f9', 
+                      fontWeight: 600,
+                      background: 'linear-gradient(45deg, #94a3b8, #cbd5e1)',
+                      backgroundClip: 'text',
+                      WebkitBackgroundClip: 'text',
+                      WebkitTextFillColor: 'transparent'
+                    }}>
+                      Environmental Impact Summary
                     </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <InfoIcon sx={{ color: '#2196f3' }} />
-                    <Typography sx={{ color: '#ffffff' }}>
-                      Member since {formatDate(userProfile?.created_at)}
+                    <Typography variant="body2" sx={{ color: '#94a3b8' }}>
+                      Your contribution to global sustainability
                     </Typography>
                   </Box>
                 </Stack>
+                
+                <Grid container spacing={3}>
+                  <Grid item xs={12} sm={4}>
+                    <Box sx={{ 
+                      textAlign: 'center', 
+                      p: 3,
+                      borderRadius: 2,
+                      background: 'linear-gradient(135deg, rgba(148,163,184,0.1), rgba(148,163,184,0.05))',
+                      border: '1px solid rgba(148,163,184,0.2)'
+                    }}>
+                      <Typography variant="h2" sx={{ 
+                        color: '#cbd5e1', 
+                        fontWeight: 600,
+                        mb: 1
+                      }}>
+                        {Math.floor(dashboardStats.totalCredits).toLocaleString()}
+                      </Typography>
+                      <Typography sx={{ color: '#94a3b8', mb: 1, fontWeight: 500 }}>Tons of CO2</Typography>
+                      <Typography variant="body2" sx={{ color: '#f1f5f9' }}>Sequestered</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <Box sx={{ 
+                      textAlign: 'center', 
+                      p: 3,
+                      borderRadius: 2,
+                      background: 'linear-gradient(135deg, rgba(100,116,139,0.1), rgba(100,116,139,0.05))',
+                      border: '1px solid rgba(100,116,139,0.2)'
+                    }}>
+                      <Typography variant="h2" sx={{ 
+                        color: '#94a3b8', 
+                        fontWeight: 600,
+                        mb: 1
+                      }}>
+                        {Math.floor(dashboardStats.totalCredits * 2.4).toLocaleString()}
+                      </Typography>
+                      <Typography sx={{ color: '#94a3b8', mb: 1, fontWeight: 500 }}>Trees Equivalent</Typography>
+                      <Typography variant="body2" sx={{ color: '#f1f5f9' }}>Planted</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} sm={4}>
+                    <Box sx={{ 
+                      textAlign: 'center', 
+                      p: 3,
+                      borderRadius: 2,
+                      background: 'linear-gradient(135deg, rgba(109,40,217,0.1), rgba(109,40,217,0.05))',
+                      border: '1px solid rgba(109,40,217,0.2)'
+                    }}>
+                      <Typography variant="h2" sx={{ 
+                        color: '#c4b5fd', 
+                        fontWeight: 600,
+                        mb: 1
+                      }}>
+                        ${Math.floor(dashboardStats.estimatedValue).toLocaleString()}
+                      </Typography>
+                      <Typography sx={{ color: '#94a3b8', mb: 1, fontWeight: 500 }}>Estimated Value</Typography>
+                      <Typography variant="body2" sx={{ color: '#f1f5f9' }}>Portfolio Worth</Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
               </CardContent>
             </Card>
           </Grid>
@@ -985,9 +1292,9 @@ const ProjectsTab = ({ dataLoading, dataErrors, userProjects, navigate, handlePr
             startIcon={<AddIcon />}
             onClick={() => navigate('/submit-project')}
             sx={{
-              bgcolor: '#00d4aa',
-              color: '#ffffff',
-              '&:hover': { bgcolor: '#00c097' }
+              bgcolor: '#64748b',
+              color: '#f1f5f9',
+              '&:hover': { bgcolor: '#475569' }
             }}
           >
             Create Your First Project
@@ -1037,7 +1344,7 @@ const ProjectsTab = ({ dataLoading, dataErrors, userProjects, navigate, handlePr
               case 'pending': bgcolor = '#ed6c02'; break;
               case 'rejected': bgcolor = '#d32f2f'; break;
               case 'credits_calculated': bgcolor = '#0288d1'; break;
-              case 'credits_minted': bgcolor = '#00d4aa'; break;
+              case 'credits_minted': bgcolor = '#86efac'; break;
               default: break;
             }
             
@@ -1096,7 +1403,7 @@ const TokensTab = ({ dataLoading, dataErrors, userTokens, formatDate, showSnackb
           }},
           { field: 'amount', headerName: 'Amount', width: 120, render: (value) => (
             <Box sx={{ textAlign: 'right' }}>
-              <Typography variant="body2" sx={{ color: '#00d4aa', fontWeight: 600 }}>
+              <Typography variant="body2" sx={{ color: '#94a3b8', fontWeight: 600 }}>
                 {parseInt(value).toLocaleString()}
               </Typography>
               <Typography variant="caption" sx={{ color: '#a0aec0' }}>
@@ -1109,7 +1416,7 @@ const TokensTab = ({ dataLoading, dataErrors, userTokens, formatDate, showSnackb
               label={value?.toUpperCase() || 'ACTIVE'} 
               size="small" 
               sx={{
-                bgcolor: value === 'active' ? '#4caf50' : value === 'retired' ? '#ff9800' : '#2196f3',
+                bgcolor: value === 'active' ? '#86efac' : value === 'retired' ? '#fbbf24' : '#94a3b8',
                 color: '#ffffff',
                 fontWeight: 600
               }}
@@ -1135,7 +1442,7 @@ const TokensTab = ({ dataLoading, dataErrors, userTokens, formatDate, showSnackb
                 showSnackbar('No transaction hash available', 'warning');
               }
             },
-            color: '#00d4aa'
+            color: '#94a3b8'
           }
         ]}
       />
@@ -1174,7 +1481,7 @@ const ProfileTab = ({ userProfile, user, formatDate, setWalletDialog }) => {
                     <Chip 
                       label={userProfile?.role?.toUpperCase() || 'USER'} 
                       size="small" 
-                      sx={{ bgcolor: '#00d4aa', color: '#ffffff' }}
+                      sx={{ bgcolor: '#64748b', color: '#f1f5f9' }}
                     />
                   </Box>
                 </Stack>
@@ -1201,14 +1508,14 @@ const ProfileTab = ({ userProfile, user, formatDate, setWalletDialog }) => {
                     <Typography sx={{ color: '#a0aec0' }}>Wallet Address:</Typography>
                     <Stack alignItems="flex-end">
                       {userProfile?.wallet_address ? (
-                        <Typography sx={{ color: '#00d4aa', fontFamily: 'monospace', fontSize: '0.875rem' }}>
+                        <Typography sx={{ color: '#94a3b8', fontFamily: 'monospace', fontSize: '0.875rem' }}>
                           {`${userProfile.wallet_address.slice(0, 8)}...${userProfile.wallet_address.slice(-6)}`}
                         </Typography>
                       ) : (
                         <Button 
                           size="small" 
                           onClick={() => setWalletDialog({ open: true })}
-                          sx={{ color: '#ffa726' }}
+                          sx={{ color: '#a8a29e' }}
                         >
                           Connect Wallet
                         </Button>
@@ -1304,7 +1611,7 @@ const DataTable = ({ title, data, loading, error, columns, actions = [], getRowA
                             <IconButton
                               size="small"
                               onClick={() => action.onClick(row)}
-                              sx={{ color: action.color || '#00d4aa' }}
+                              sx={{ color: action.color || '#94a3b8' }}
                             >
                               {action.icon}
                             </IconButton>
@@ -1323,3 +1630,38 @@ const DataTable = ({ title, data, loading, error, columns, actions = [], getRowA
   };
 
 export default UserDashboard;
+
+// Add CSS keyframes for animations
+const style = document.createElement('style');
+style.textContent = `
+  @keyframes pulse {
+    0% {
+      transform: scale(1);
+    }
+    50% {
+      transform: scale(1.05);
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+
+  @keyframes float {
+    0%, 100% {
+      transform: translateY(0px);
+    }
+    50% {
+      transform: translateY(-10px);
+    }
+  }
+
+  @keyframes glow {
+    from {
+      box-shadow: 0 0 5px rgba(148,163,184,0.4);
+    }
+    to {
+      box-shadow: 0 0 20px rgba(148,163,184,0.8);
+    }
+  }
+`;
+document.head.appendChild(style);
