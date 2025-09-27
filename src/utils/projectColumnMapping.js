@@ -187,6 +187,18 @@ export function normalizeProject(project) {
   if (!project) return null;
 
   const normalized = { ...project };
+  
+  // CRITICAL FIX: Preserve relationship data (profiles, reviewer, approver)
+  // These are join relationships from Supabase that must be preserved
+  if (project.profiles) {
+    normalized.profiles = project.profiles;
+  }
+  if (project.reviewer) {
+    normalized.reviewer = project.reviewer;
+  }
+  if (project.approver) {
+    normalized.approver = project.approver;
+  }
 
   // Ensure title is available
   if (!normalized.title && normalized.name) {
@@ -338,6 +350,14 @@ export function getProjectDisplayValues(project) {
     carbon_data: normalized.carbon_data,
     review_notes: normalized.review_notes,
     reviewed_at: normalized.reviewed_at,
-    project_type: normalized.project_type || 'carbon_sequestration'
+    project_type: normalized.project_type || 'carbon_sequestration',
+    
+    // CRITICAL FIX: Preserve relationship data for wallet functionality
+    profiles: normalized.profiles,
+    reviewer: normalized.reviewer, 
+    approver: normalized.approver,
+    user_id: normalized.user_id,
+    wallet_address: normalized.wallet_address,
+    mint_address: normalized.mint_address
   };
 }

@@ -4,248 +4,178 @@ This file provides guidance to WARP (warp.dev) when working with code in this re
 
 ## Project Overview
 
-**Blue Carbon MRV System** - A comprehensive React/Node.js application for blue carbon project management, monitoring, reporting, and verification (MRV) with blockchain-based token minting on Solana.
-
-### Key Technologies
-- **Frontend**: React 19.1, Material-UI 7.3, React Router 7.8
-- **Backend**: Node.js/Express with multiple API services
-- **Database**: Supabase (PostgreSQL with real-time subscriptions)
-- **Blockchain**: Solana (SPL tokens for carbon credits)
-- **Authentication**: Supabase Auth with role-based access control
-- **Build Tools**: React App Rewired, Webpack 5 with crypto polyfills
-
-## Architecture Overview
-
-### Frontend Architecture
-```
-src/
-├── components/          # Reusable UI components
-│   ├── Navbar.jsx      # Main navigation with auth state
-│   ├── Footer.jsx      # Site footer
-│   ├── ProtectedRoute.jsx  # Route protection with role checks
-│   ├── WalletProviderWrapper.jsx  # Solana wallet context
-│   └── *Dashboard.jsx  # Role-specific dashboards
-├── pages/              # Route-level page components
-│   ├── Landing.jsx     # Public homepage
-│   ├── Login.jsx       # Authentication page
-│   ├── Signup.jsx      # User registration
-│   ├── UserDashboard.jsx   # Regular user interface
-│   ├── AdminDashboard.jsx  # Admin management interface
-│   └── ProjectSubmission.jsx  # Project creation form
-├── lib/                # Core libraries and configs
-│   └── supabaseClient.js   # Database connection setup
-├── utils/              # Utility functions and helpers
-├── hooks/              # Custom React hooks
-├── services/           # API service modules
-└── images/             # Static assets
-```
-
-### Backend Architecture
-```
-server/
-├── api/                # Express.js API endpoints
-│   ├── secure-mint.js  # Primary token minting service (port 3001)
-│   ├── mint.js         # Basic minting service (alternative)
-│   └── wallet.js       # Wallet management API
-├── logs/               # Application log files
-├── .env.example        # Server environment template
-└── package.json        # Server dependencies
-```
-
-### Database Schema (Supabase)
-- **profiles**: User accounts with roles (admin, user) and wallet addresses
-- **projects**: Blue carbon projects with status tracking and credits calculation
-- **tokens**: Minted carbon credit tokens with blockchain transaction records
-- **admin_logs**: Administrative action audit trail
-
-### Authentication & Authorization
-- **Supabase Auth**: Email/password authentication with JWT tokens
-- **Role-based access**: `admin` role for system management, `user` role for project submission
-- **Route protection**: `ProtectedRoute` component handles authorization
-- **Admin-only features**: Token minting, project approval, user management
+BlueCarbon is a blockchain-powered platform for managing Blue Carbon Credits from coastal ecosystem restoration projects. It combines React 19 frontend with Node.js/Express backend, Solana blockchain integration, and Supabase PostgreSQL database to create a transparent carbon credit marketplace.
 
 ## Development Commands
 
-### Frontend Development
+### Frontend (React Application)
+- **Start development server**: `npm start` (runs on http://localhost:3000)
+- **Build for production**: `npm run build`
+- **Eject from Create React App**: `npm run eject`
+
+### Backend (Node.js Server)
+Navigate to `server/` directory first:
+- **Start production server**: `npm start` (runs on http://localhost:3001)
+- **Start development server**: `npm run dev` (with nodemon auto-reload)
+- **Start production mode**: `npm run prod`
+- **View logs**: `npm run logs` (all logs) or `npm run logs:error` (error logs only)
+
+### Full Stack Development
+1. **Start backend**: `cd server && npm run dev`
+2. **Start frontend**: `npm start` (in root directory)
+3. Frontend automatically proxies API requests to backend via `"proxy": "http://localhost:3001"`
+
+### Testing Commands
+- **Run React tests**: `npm test` (if tests are configured)
+- **Run server health check**: Visit `http://localhost:3001/health`
+
+## Architecture Overview
+
+### High-Level System Design
+The application follows a **3-tier architecture** with clear separation of concerns:
+
+1. **Presentation Layer**: React 19 SPA with Material-UI components
+2. **Business Logic Layer**: Node.js/Express API server with authentication and validation
+3. **Data Layer**: Supabase PostgreSQL with real-time subscriptions and Solana blockchain
+
+### Key Architectural Patterns
+
+#### **Blockchain-First Authentication**
+- Users authenticate via Supabase Auth (email/password)
+- **Solana wallet integration** is mandatory for project operations
+- Wallet addresses are stored and validated against connected Solana wallets
+- All carbon credit operations require wallet verification
+
+#### **Service-Oriented Wallet Management**
+- **Centralized WalletService** (`src/services/walletService.js`) handles all wallet operations
+- **Custom useWallet hook** (`src/hooks/useWallet.js`) provides React state management
+- **Fallback mechanisms** from API to direct database access for resilience
+- **Caching and retry logic** for improved performance
+
+#### **Scientific Calculation Engine**
+- **Carbon credit calculations** in `src/utils/carbonCreditCalculator.js`
+- **IPCC-compliant formulas** for 5 blue carbon ecosystem types:
+  - Mangrove forests, salt marshes, seagrass beds, coastal wetlands, tidal flats
+- **Uncertainty factors** (default 20%) applied to ensure conservative estimates
+- **Real-time validation** and calculation preview during form submission
+
+#### **Role-Based Access Control**
+- **ProtectedRoute component** enforces authentication requirements
+- **Admin-only routes** for project approval and system management
+- **Database-level security** via Supabase Row Level Security policies
+
+### Critical Code Paths
+
+#### **Project Submission Flow**
+1. User completes multi-section form in `ProjectSubmission.jsx`
+2. **WalletRequirement** component validates wallet connectivity
+3. Scientific parameters processed by `carbonCreditCalculator.js`
+4. Form data submitted to `/api/projects` endpoint
+5. Admin approval required in `AdminDashboard.jsx`
+
+#### **Token Minting Process**
+1. Admin approves project and triggers minting
+2. Server validates project status and user wallet
+3. **Solana SPL Token** minted via `/api/mint` endpoint (admin-only)
+4. Transaction recorded in both database and blockchain
+5. User receives tokens directly to their connected wallet
+
+#### **Wallet Integration Lifecycle**
+1. **SolanaWalletAdapter** handles browser wallet connection
+2. **useWallet hook** manages connection state and user profile sync
+3. **WalletService** API calls for persistent storage
+4. **Real-time validation** against connected wallet for security
+
+### Database Schema Relationships
+
+#### **Core Tables**
+- **`profiles`**: User data with wallet addresses and verification status
+- **`projects`**: Project submissions with carbon data (JSONB) and calculated credits
+- **`tokens`**: Minted token records linked to projects and recipients
+- **`admin_logs`**: Audit trail for administrative actions
+
+#### **Data Flow Patterns**
+- **Optimistic updates** in React UI for better UX
+- **Real-time subscriptions** for project status changes
+- **JSONB storage** for flexible carbon data parameters
+- **Calculated fields** updated via triggers and API operations
+
+### Security Implementation
+
+#### **API Security Layers**
+- **Rate limiting**: General (100/15min), Minting (5/1min)
+- **JWT authentication** via Supabase Auth with Bearer tokens
+- **Input validation** using express-validator
+- **CORS and Helmet** middleware for browser security
+
+#### **Blockchain Security**
+- **Wallet signature verification** before any token operations
+- **Transaction validation** against project approval status
+- **Environment-based key management** for minting operations
+- **Audit trails** for all blockchain interactions
+
+### Performance Optimizations
+
+#### **Frontend**
+- **Code splitting** with React.lazy() for route-based loading
+- **Memoization** with useMemo/useCallback in custom hooks
+- **Optimistic updates** for wallet operations
+- **Bundle optimization** via react-app-rewired configuration
+
+#### **Backend**
+- **Connection pooling** for database operations
+- **Caching layer** in WalletService (5-minute TTL)
+- **Request deduplication** for concurrent wallet status checks
+- **Compression and logging** via Express middleware
+
+### Environment Configuration
+
+#### **Required Environment Variables**
 ```bash
-# Install dependencies
-npm install
+# Frontend (.env)
+REACT_APP_SUPABASE_URL=your-supabase-url
+REACT_APP_SUPABASE_ANON_KEY=your-supabase-anon-key
+REACT_APP_WALLET_API_URL=http://localhost:3001
 
-# Start development server (port 3000)
-npm start
-
-# Run tests (includes wallet testing utilities)
-npm test
-
-# Build production bundle
-npm run build
-
-# Build and analyze bundle size
-npm run build:analyze
-
-# Verify development setup
-npm run verify
-```
-
-### Backend Development
-```bash
-# Navigate to server directory
-cd server
-
-# Install server dependencies
-npm install
-
-# Start production server (recommended - port 3001)
-npm start
-
-# Start basic minting server
-npm run start:basic
-
-# Start wallet management server
-npm run start:wallet
-
-# Development mode with auto-restart
-npm run dev
-
-# Development wallet server
-npm run dev:wallet
-```
-
-### Environment Setup
-
-#### Frontend (.env)
-```bash
-# Required Supabase configuration
-REACT_APP_SUPABASE_URL=your_supabase_url
-REACT_APP_SUPABASE_ANON_KEY=your_supabase_anon_key
-
-# Optional Solana configuration (defaults to devnet)
-REACT_APP_SOLANA_RPC_URL=https://api.devnet.solana.com
-REACT_APP_SOLANA_CLUSTER=devnet
-
-# Application metadata
-REACT_APP_APP_NAME=Blue Carbon MRV
-REACT_APP_VERSION=1.0.0
-REACT_APP_ENVIRONMENT=development
-```
-
-#### Backend (server/.env)
-```bash
-# Required for all server operations
-SUPABASE_URL=your_supabase_url
-SUPABASE_SERVICE_ROLE_KEY=your_service_role_key
-
-# Required for token minting
+# Backend (server/.env)
+SUPABASE_URL=your-supabase-url
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SOLANA_PAYER_SECRET=base58-encoded-private-key
 SOLANA_RPC_URL=https://api.devnet.solana.com
-SOLANA_PAYER_SECRET=[your_keypair_array_or_base58]
-SOLANA_CLUSTER=devnet
-
-# Server configuration
-PORT=3001
-NODE_ENV=development
-CORS_ORIGIN=http://localhost:3000
-
-# Security and monitoring
-JWT_SECRET=your_jwt_secret
-RATE_LIMIT_WINDOW_MS=900000
-RATE_LIMIT_MAX_REQUESTS=100
-LOG_LEVEL=info
 ```
 
-## Key Development Patterns
+### Deployment Considerations
 
-### Component Architecture
-- **Material-UI theming**: Dark theme with custom colors (#00d4aa primary, #0a0f1c background)
-- **Responsive design**: Mobile-first approach with breakpoint-based layouts
-- **Error boundaries**: Global error handling with `ErrorBoundary` component
-- **Lazy loading**: Route-level code splitting for performance
+#### **Build Process**
+- Frontend builds to `build/` directory with optimized assets
+- Backend requires Node.js environment with `server.js` entry point
+- **Polyfills required** for Solana Web3.js in browser (configured in `config-overrides.js`)
 
-### State Management
-- **React hooks**: useState, useEffect, useCallback for local state
-- **Context providers**: Wallet connection state via WalletProviderWrapper
-- **Supabase real-time**: Database subscriptions for live updates
-- **Form state**: Controlled components with validation
+#### **External Dependencies**
+- **Supabase** for authentication and database
+- **Solana devnet/mainnet** for blockchain operations
+- **Material-UI** for consistent design system
+- **Multiple wallet adapters** for Phantom, Solflare, Coin98 support
 
-### API Integration
-- **Supabase client**: Database operations and authentication
-- **RESTful endpoints**: Express.js APIs for blockchain operations
-- **Error handling**: Comprehensive error states and user feedback
-- **Rate limiting**: Built-in protection against abuse
+### Common Development Patterns
 
-### Security Measures
-- **CORS configuration**: Restricted origins for API access
-- **Input validation**: express-validator for API endpoints
-- **Helmet.js**: Security headers and content security policy
-- **Rate limiting**: Per-IP and per-user request throttling
-- **Authentication middleware**: JWT token validation
-- **Role-based access**: Admin-only operations and UI sections
+#### **Component Structure**
+- **Pages** in `src/pages/` for route components
+- **Reusable components** in `src/components/`
+- **Custom hooks** in `src/hooks/` for state management
+- **Services** in `src/services/` for external API communication
+- **Utilities** in `src/utils/` for pure functions and calculations
 
-## Common Development Tasks
+#### **Error Handling**
+- **ErrorBoundary** component wraps entire application
+- **Consistent error responses** from API with request IDs
+- **User-friendly error messages** with fallback mechanisms
+- **Comprehensive logging** via Winston on server side
 
-### Adding New Project Types
-1. Update database schema in Supabase
-2. Modify project validation in `utils/projectColumnMapping.js`
-3. Update carbon credit calculation in `utils/carbonCreditCalculator.js`
-4. Enhance project submission form components
+#### **State Management**
+- **React hooks** for component state
+- **Custom hooks** for cross-component state sharing
+- **Supabase real-time subscriptions** for server state synchronization
+- **Local caching** in services for performance
 
-### Implementing New API Endpoints
-1. Create route in appropriate `server/api/*.js` file
-2. Add authentication middleware if required
-3. Implement validation with express-validator
-4. Update CORS and rate limiting as needed
-
-### Database Migrations
-1. Apply schema changes in Supabase dashboard
-2. Update TypeScript types if using
-3. Modify relevant utility functions for data normalization
-4. Test with existing data to ensure compatibility
-
-### Wallet Integration Testing
-- Use `src/utils/walletTestUtils.js` for comprehensive wallet testing
-- Mock wallet adapters available for different wallet providers
-- Test connection, disconnection, and transaction signing scenarios
-
-## Troubleshooting
-
-### Common Build Issues
-- **Buffer/crypto errors**: Handled by webpack configuration in `config-overrides.js`
-- **Node.js polyfills**: Configured for Solana web3.js compatibility
-- **Source map warnings**: Automatically ignored for node_modules
-
-### Runtime Issues
-- **Database connection**: Verify Supabase URL and keys in environment
-- **Wallet connection**: Ensure Solana RPC endpoint is accessible
-- **Token minting failures**: Check Solana payer account has sufficient SOL
-- **Authentication issues**: Verify JWT token validity and user roles
-
-### Performance Optimization
-- **Bundle analysis**: Use `npm run build:analyze` to identify large dependencies
-- **Lazy loading**: All pages are code-split by default
-- **Database queries**: Use Supabase select statements efficiently
-- **Real-time subscriptions**: Unsubscribe to prevent memory leaks
-
-## Production Deployment
-
-### Frontend Deployment
-- Build optimized bundle with `npm run build`
-- Serve static files from `build/` directory
-- Configure environment variables for production Supabase instance
-
-### Backend Deployment
-- Use `npm run prod` for production server startup
-- Configure production environment variables
-- Set up process manager (PM2) for auto-restart
-- Configure reverse proxy (nginx) for SSL termination
-
-### Database Considerations
-- Enable Supabase real-time for live updates
-- Configure row-level security (RLS) policies
-- Set up database backups and monitoring
-- Optimize queries for production load
-
-### Security Checklist
-- Rotate Supabase service role keys
-- Generate production-specific JWT secrets
-- Configure CORS for production domains
-- Enable rate limiting and monitoring
-- Set up logging and alerting
+This architecture enables reliable, scalable carbon credit management with blockchain transparency while maintaining excellent developer experience and user interface responsiveness.

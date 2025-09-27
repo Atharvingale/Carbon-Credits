@@ -312,7 +312,7 @@ export default function ProjectSubmission() {
   ];
 
   const handleWalletConnected = (connectedWalletAddress) => {
-    console.log('Wallet connected for project submission:', connectedWalletAddress);
+    // Wallet connected successfully
   };
 
   const handleSubmit = async (e) => {
@@ -368,7 +368,6 @@ export default function ProjectSubmission() {
       }, 3000); // Redirect after 3 seconds
       
     } catch (error) {
-      console.error('Submission error:', error);
       setSubmitStatus('error');
     } finally {
       setIsSubmitting(false);

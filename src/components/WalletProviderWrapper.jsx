@@ -97,7 +97,6 @@ export default function WalletProviderWrapper({
         setConnectionError(null);
         setConnectionStatus('connected');
       } catch (error) {
-        console.error('Connection test failed:', error);
         setConnectionError(error.message);
         setConnectionStatus('error');
       }
@@ -131,7 +130,7 @@ export default function WalletProviderWrapper({
         try {
           adapters.push(adapterFactory());
         } catch (error) {
-          console.warn(`Failed to initialize ${walletName} wallet:`, error);
+          // Silently skip wallet initialization errors
         }
       }
     });
@@ -141,7 +140,6 @@ export default function WalletProviderWrapper({
 
   // Error handler for wallet operations
   const handleWalletError = useCallback((error) => {
-    console.error('Wallet error:', error);
     
     let errorMessage = 'An unknown wallet error occurred';
     let errorType = 'error';

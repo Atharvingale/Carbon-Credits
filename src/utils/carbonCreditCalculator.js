@@ -131,7 +131,6 @@ export function calculateCarbonCredits(values) {
       }
     };
   } catch (error) {
-    console.error('Error in carbon credit calculation:', error);
     return null;
   }
 }

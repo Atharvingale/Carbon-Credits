@@ -38,6 +38,7 @@ import {
 } from '@mui/icons-material';
 import ProjectDetailDialog from '../components/ProjectDetailDialog';
 import CarbonCreditCalculatorDialog from '../components/CarbonCreditCalculatorDialog';
+import AdminMintVerificationModal from '../components/admin/AdminMintVerificationModal';
 
 const AdminDashboard = () => {
   const navigate = useNavigate();
@@ -94,6 +95,7 @@ const AdminDashboard = () => {
   // Dialog states
   const [projectDetailDialog, setProjectDetailDialog] = useState({ open: false, project: null });
   const [calculatorDialog, setCalculatorDialog] = useState({ open: false, project: null });
+  const [mintVerificationModal, setMintVerificationModal] = useState({ open: false, project: null });
   const [selectedProject, setSelectedProject] = useState(null);
 
   // Utility functions
@@ -123,6 +125,17 @@ const AdminDashboard = () => {
       minute: '2-digit'
     });
   }, []);
+  
+  // Utility function to format credits with proper decimals
+  const formatCredits = useCallback((value) => {
+    if (!value || value === 0) return 'N/A';
+    
+    const numValue = parseFloat(value);
+    return numValue.toLocaleString(undefined, { 
+      minimumFractionDigits: 2, 
+      maximumFractionDigits: 2 
+    }) + ' CCR';
+  }, []);
 
   // Authentication check
   const checkAuthentication = useCallback(async () => {
@@ -130,7 +143,6 @@ const AdminDashboard = () => {
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
       if (sessionError) {
-        console.error('Session error:', sessionError);
         showSnackbar('Authentication error occurred', 'error');
         navigate('/login');
         return false;
@@ -151,7 +163,6 @@ const AdminDashboard = () => {
         .single();
       
       if (profileError) {
-        console.error('Profile fetch error:', profileError);
         showSnackbar('Failed to verify admin access', 'error');
         return false;
       }
@@ -164,7 +175,6 @@ const AdminDashboard = () => {
       
       return true;
     } catch (error) {
-      console.error('Authentication check failed:', error);
       showSnackbar('Authentication failed', 'error');
       navigate('/login');
       return false;
@@ -177,23 +187,21 @@ const AdminDashboard = () => {
     setErrorState('users', null);
     
     try {
-      console.log('👥 Fetching users...');
       const { data, error } = await supabase
         .from('profiles')
         .select(`
           id, email, full_name, role, organization_name, organization_type,
           phone_number, is_blocked, block_reason, blocked_at,
-          is_verified, verification_date, created_at, updated_at
+          is_verified, verification_date, created_at, updated_at,
+          wallet_address, wallet_connected_at, wallet_verified
         `)
         .order('created_at', { ascending: false });
       
       if (error) throw error;
       
-      console.log(`✅ Loaded ${data?.length || 0} users`);
       setAllUsers(data || []);
       
     } catch (error) {
-      console.error('❌ Users fetch error:', error);
       const errorMessage = error.code === '42P01' 
         ? 'Profiles table not found. Please run database setup.'
         : `Failed to fetch users: ${error.message}`;
@@ -209,7 +217,6 @@ const AdminDashboard = () => {
     setErrorState('projects', null);
     
     try {
-      console.log('📁 Fetching projects...');
       const { data, error } = await supabase
         .from('projects')
         .select(`
@@ -223,7 +230,7 @@ const AdminDashboard = () => {
           project_start_date, project_end_date, tags,
           created_at, updated_at,
           profiles:user_id (
-            full_name, email, wallet_address
+            id, full_name, email, wallet_address, wallet_connected_at, wallet_verified
           ),
           reviewer:reviewed_by (
             full_name, email
@@ -235,8 +242,6 @@ const AdminDashboard = () => {
         .order('created_at', { ascending: false });
       
       if (error) throw error;
-      
-      console.log(`✅ Loaded ${data?.length || 0} projects`);
       
       // Normalize projects and calculate estimated credits where missing
       const normalizedProjects = (data || []).map(project => {
@@ -250,20 +255,15 @@ const AdminDashboard = () => {
               const calculation = calculateProjectCredits(normalized.carbon_data, normalized.project_area);
               if (calculation) {
                 normalized.estimated_credits = calculation.totalCarbonCredits;
-                console.log(`🧮 Calculated estimated credits for project ${normalized.title}: ${calculation.totalCarbonCredits}`);
                 
-                // Optionally update the database with estimated credits
-                // We'll do this asynchronously without blocking the UI
+                // Update the database with estimated credits asynchronously
                 supabase
                   .from('projects')
                   .update({ estimated_credits: calculation.totalCarbonCredits })
-                  .eq('id', normalized.id)
-                  .then(({ error }) => {
-                    if (error) console.warn('Failed to update estimated credits:', error);
-                  });
+                  .eq('id', normalized.id);
               }
             } catch (calcError) {
-              console.warn(`Failed to calculate estimated credits for project ${normalized.id}:`, calcError);
+              // Silently continue if calculation fails
             }
           }
         }
@@ -274,7 +274,6 @@ const AdminDashboard = () => {
       setAllProjects(normalizedProjects);
       
     } catch (error) {
-      console.error('❌ Projects fetch error:', error);
       const errorMessage = error.code === '42P01'
         ? 'Projects table not found. Please run database setup and migration.'
         : `Failed to fetch projects: ${error.message}`;
@@ -290,7 +289,6 @@ const AdminDashboard = () => {
     setErrorState('tokens', null);
     
     try {
-      console.log('🪙 Fetching tokens...');
       const { data, error } = await supabase
         .from('tokens')
         .select(`
@@ -311,11 +309,9 @@ const AdminDashboard = () => {
       
       if (error) throw error;
       
-      console.log(`✅ Loaded ${data?.length || 0} tokens`);
       setAllTokens(data || []);
       
     } catch (error) {
-      console.error('❌ Tokens fetch error:', error);
       const errorMessage = error.code === '42P01'
         ? 'Tokens table not found. Token management unavailable.'
         : `Failed to fetch tokens: ${error.message}`;
@@ -331,7 +327,6 @@ const AdminDashboard = () => {
     setErrorState('logs', null);
     
     try {
-      console.log('📈 Fetching admin logs...');
       const { data, error } = await supabase
         .from('admin_logs')
         .select(`
@@ -346,11 +341,9 @@ const AdminDashboard = () => {
       
       if (error) throw error;
       
-      console.log(`✅ Loaded ${data?.length || 0} admin logs`);
       setAdminLogs(data || []);
       
     } catch (error) {
-      console.error('❌ Admin logs fetch error:', error);
       const errorMessage = error.code === '42P01'
         ? 'Admin logs table not found. Activity logging unavailable.'
         : `Failed to fetch admin logs: ${error.message}`;
@@ -367,8 +360,6 @@ const AdminDashboard = () => {
     setErrorState('stats', null);
     
     try {
-      console.log('📊 Calculating dashboard statistics...');
-      
       // Calculate stats from existing data or fetch fresh counts
       const statsPromises = [
         // User counts
@@ -410,11 +401,9 @@ const AdminDashboard = () => {
         recentActivity
       };
       
-      console.log('✅ Dashboard statistics calculated:', stats);
       setDashboardStats(stats);
       
     } catch (error) {
-      console.error('❌ Dashboard stats fetch error:', error);
       setErrorState('stats', `Failed to calculate statistics: ${error.message}`);
     } finally {
       setLoadingState('stats', false);
@@ -423,8 +412,6 @@ const AdminDashboard = () => {
 
   // Main data fetching function
   const fetchAllData = useCallback(async () => {
-    console.log('🔄 Fetching all admin dashboard data...');
-    
     // Fetch all data in parallel for better performance
     const dataPromises = [
       fetchUsers(),
@@ -436,9 +423,7 @@ const AdminDashboard = () => {
     
     try {
       await Promise.allSettled(dataPromises);
-      console.log('✅ All data fetching completed');
     } catch (error) {
-      console.error('❌ Error during data fetching:', error);
       showSnackbar('Some data could not be loaded', 'warning');
     }
   }, [fetchUsers, fetchProjects, fetchTokens, fetchAdminLogs, fetchDashboardStats, showSnackbar]);
@@ -450,7 +435,6 @@ const AdminDashboard = () => {
       await fetchAllData();
       showSnackbar('Dashboard refreshed successfully', 'success');
     } catch (error) {
-      console.error('Refresh failed:', error);
       showSnackbar('Failed to refresh dashboard', 'error');
     } finally {
       setRefreshing(false);
@@ -479,7 +463,6 @@ const AdminDashboard = () => {
       await supabase.auth.signOut();
       navigate('/login');
     } catch (error) {
-      console.error('Error logging out:', error);
       showSnackbar('Error logging out', 'error');
     }
   }, [navigate, showSnackbar]);
@@ -494,12 +477,10 @@ const AdminDashboard = () => {
 
   // Project action handlers
   const handleProjectReview = useCallback((project) => {
-    console.log('Opening project review for:', project.title);
     setProjectDetailDialog({ open: true, project });
   }, []);
 
   const handleProjectCalculate = useCallback((project) => {
-    console.log('Opening calculator for:', project.title);
     setCalculatorDialog({ open: true, project });
   }, []);
 
@@ -533,7 +514,6 @@ const AdminDashboard = () => {
       await fetchProjects(); // Refresh projects
       
     } catch (error) {
-      console.error('Error approving project:', error);
       showSnackbar(`Failed to approve project: ${error.message}`, 'error');
     } finally {
       setLoadingState('projects', false);
@@ -546,10 +526,19 @@ const AdminDashboard = () => {
       
       const { data: { user } } = await supabase.auth.getUser();
       
+      // FIXED: Properly handle decimal credits storage
+      // Ensure the value is stored as a proper decimal number
+      const creditsToStore = parseFloat(credits);
+      
+      // Validate that we have a reasonable credit value
+      if (isNaN(creditsToStore) || creditsToStore <= 0) {
+        throw new Error('Invalid credits value for storage');
+      }
+      
       const { error } = await supabase
         .from('projects')
         .update({ 
-          calculated_credits: credits,
+          calculated_credits: creditsToStore,
           status: 'credits_calculated',
           calculation_data: calculationDetails,
           reviewed_at: new Date().toISOString(),
@@ -572,7 +561,6 @@ const AdminDashboard = () => {
       await fetchProjects(); // Refresh projects
       
     } catch (error) {
-      console.error('Error updating calculated credits:', error);
       showSnackbar(`Failed to update credits: ${error.message}`, 'error');
     }
   }, [selectedProject, fetchProjects, showSnackbar]);
@@ -583,6 +571,8 @@ const AdminDashboard = () => {
     } else if (dialogType === 'calculator') {
       setCalculatorDialog({ open: false, project: null });
       setSelectedProject(null);
+    } else if (dialogType === 'mint') {
+      setMintVerificationModal({ open: false, project: null });
     }
   }, []);
 
@@ -597,105 +587,37 @@ const AdminDashboard = () => {
     showSnackbar('Project updated successfully', 'success');
   }, [fetchProjects, showSnackbar]);
 
-  // Minting functionality
-  const handleMintTokens = useCallback(async (project) => {
+  // Enhanced Minting functionality with verification modal
+  const handleMintTokens = useCallback((project) => {
+    // Open the comprehensive verification modal
+    setMintVerificationModal({ open: true, project });
+  }, []);
+
+  // Handle the actual minting after verification
+  const handleMintConfirm = useCallback(async (mintData) => {
     try {
-      setLoadingState('projects', true);
-      
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
         showSnackbar('Authentication required for minting', 'error');
         return;
       }
-      
-      // Check if user has provided wallet address (check profile first, then project)
-      // Handle case where profiles might be null or undefined
-      const userWalletAddress = (project.profiles && project.profiles.wallet_address) || project.wallet_address;
-      if (!userWalletAddress) {
-        showSnackbar('Cannot mint tokens: User has not connected a wallet address. Please ask the user to connect their wallet in their profile.', 'error');
+
+      // Get recipient wallet from user details
+      const recipientWallet = mintData.userDetails.wallet_address;
+      if (!recipientWallet) {
+        showSnackbar('User wallet address not found', 'error');
         return;
       }
-      
-      // Validate wallet address format (basic Solana address validation)
-      const walletRegex = /^[A-Za-z0-9]{32,44}$/;
-      if (!walletRegex.test(userWalletAddress)) {
-        showSnackbar('Invalid wallet address format. Please verify the wallet address in the user profile.', 'error');
-        return;
-      }
-      
-      const recipientWallet = userWalletAddress;
-      
-      // Use calculated credits (prioritize calculated over estimated for accuracy)
-      let creditsToMint;
-      let creditSource;
-      
-      if (project.calculated_credits && project.calculated_credits > 0) {
-        creditsToMint = project.calculated_credits;
-        creditSource = 'calculated';
-      } else if (project.estimated_credits && project.estimated_credits > 0) {
-        creditsToMint = project.estimated_credits;
-        creditSource = 'estimated';
-        
-        // Warn admin if using estimated instead of calculated
-        const useEstimated = window.confirm(
-          `⚠️ WARNING: Using ESTIMATED credits instead of calculated credits.\n\n` +
-          `Estimated: ${parseInt(project.estimated_credits).toLocaleString()} CCR\n\n` +
-          `For data authenticity, it's recommended to calculate exact credits first.\n\n` +
-          `Continue with estimated credits?`
-        );
-        
-        if (!useEstimated) {
-          showSnackbar('Minting cancelled. Please calculate exact credits first.', 'info');
-          return;
-        }
-      } else {
-        showSnackbar('No credits available for minting. Please calculate credits first.', 'error');
-        return;
-      }
-      
-      // Ensure whole number of credits (no fractional tokens)
-      const exactCredits = Math.floor(creditsToMint);
-      if (exactCredits !== creditsToMint) {
-        const proceedFractional = window.confirm(
-          `⚠️ PRECISION WARNING: Credits contain decimal places.\n\n` +
-          `Original: ${creditsToMint} CCR\n` +
-          `Will mint: ${exactCredits} CCR (rounded down)\n\n` +
-          `Continue with ${exactCredits} tokens?`
-        );
-        
-        if (!proceedFractional) {
-          showSnackbar('Minting cancelled due to fractional credits.', 'info');
-          return;
-        }
-        
-        creditsToMint = exactCredits;
-      }
-      
-      // Show detailed confirmation dialog with all critical information
-      const confirmed = window.confirm(
-        `🔒 IMMUTABLE TOKEN MINTING CONFIRMATION\n\n` +
-        `Project: "${project.title}"\n` +
-        `Credits to Mint: ${parseInt(creditsToMint).toLocaleString()} CCR\n` +
-        `Credit Source: ${creditSource.toUpperCase()}\n` +
-        `Recipient: ${recipientWallet}\n\n` +
-        `⚠️ IMPORTANT: This action is IRREVERSIBLE\n` +
-        `Once minted, tokens cannot be modified or recalled.\n\n` +
-        `Confirm minting ${parseInt(creditsToMint).toLocaleString()} tokens?`
-      );
-      
-      if (!confirmed) {
-        showSnackbar('Token minting cancelled', 'info');
-        return;
-      }
-      
-      showSnackbar(`Minting ${creditsToMint} credits...`, 'info');
+
+      showSnackbar(`Minting ${mintData.amount} credits...`, 'info');
       
       // Create verification hash for authenticity
       const apiVerificationData = {
-        projectId: project.id,
-        projectTitle: project.title,
-        creditsToMint: parseInt(creditsToMint),
-        creditSource: creditSource,
+        projectId: mintData.projectId,
+        projectTitle: mintData.projectDetails.title,
+        creditsToMint: parseInt(mintData.amount),
+        reason: mintData.reason,
+        adminVerified: mintData.adminVerified,
         timestamp: Date.now()
       };
       
@@ -707,10 +629,11 @@ const AdminDashboard = () => {
           'Authorization': `Bearer ${session.access_token}`
         },
         body: JSON.stringify({
-          projectId: project.id,
+          projectId: mintData.projectId,
           recipientWallet: recipientWallet,
-          amount: creditsToMint.toString(),
+          amount: mintData.amount.toString(),
           decimals: 0,
+          reason: mintData.reason,
           verificationData: apiVerificationData
         })
       });
@@ -722,25 +645,22 @@ const AdminDashboard = () => {
       
       const mintResult = await response.json();
       
-      // Create immutable verification record
+      // Get current user for verification
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      // Create comprehensive verification record
       const mintingVerificationData = {
-        original_calculated_credits: project.calculated_credits,
-        original_estimated_credits: project.estimated_credits,
-        credits_source: creditSource,
-        credits_requested: parseInt(creditsToMint),
-        credits_minted: parseInt(creditsToMint),
+        project_details: mintData.projectDetails,
+        user_details: mintData.userDetails,
+        credits_minted: parseInt(mintData.amount),
+        minting_reason: mintData.reason,
         mint_transaction: mintResult.tx,
         mint_address: mintResult.mint,
         recipient_wallet: recipientWallet,
+        admin_verified: true,
+        verification_admin: user?.id,
         verification_timestamp: new Date().toISOString()
-        // verification_admin will be set after getting user info
       };
-      
-      // Get user info for verification and logging
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      // Add admin info to verification data
-      mintingVerificationData.verification_admin = user?.id;
       
       // Update project status to reflect successful minting with verification
       const projectUpdate = await supabase
@@ -748,43 +668,36 @@ const AdminDashboard = () => {
         .update({
           status: 'credits_minted',
           mint_address: mintResult.mint,
-          credits_issued: parseInt(creditsToMint),
-          credits_source: creditSource,
+          credits_issued: parseInt(mintData.amount),
           minting_verification: mintingVerificationData,
           minted_at: new Date().toISOString(),
           is_immutable: true // Mark as immutable after minting
         })
-        .eq('id', project.id);
+        .eq('id', mintData.projectId);
       
       if (projectUpdate.error) {
-        console.error('Project update error:', projectUpdate.error);
         showSnackbar('Warning: Tokens minted but project update failed', 'warning');
       }
       
-      // Token verification is built into the minting process
-      // Amount matching is enforced by server-side validation
-      
-      // Log admin action
+      // Log admin action with comprehensive details
       await supabase.from('admin_logs').insert([{
         admin_id: user?.id,
-        action: 'tokens_minted',
+        action: 'tokens_minted_verified',
         target_type: 'project',
-        target_id: project.id,
-        details: `Minted ${creditsToMint} credits for project: ${project.title}. Mint: ${mintResult.mint}, Tx: ${mintResult.tx}`
+        target_id: mintData.projectId,
+        details: `Admin-verified minting: ${mintData.amount} credits for project "${mintData.projectDetails.title}". Reason: ${mintData.reason}. Mint: ${mintResult.mint}, Tx: ${mintResult.tx}`
       }]);
       
-      showSnackbar(`Successfully minted ${creditsToMint} credits! View on Solana Explorer: ${mintResult.explorer_url}`, 'success');
+      showSnackbar(`Successfully minted ${mintData.amount} credits! View on Solana Explorer: ${mintResult.explorer_url}`, 'success');
       
       // Refresh projects and tokens to show updated state
       await Promise.all([fetchProjects(), fetchTokens()]);
       
     } catch (error) {
-      console.error('Error minting tokens:', error);
       showSnackbar(`Failed to mint tokens: ${error.message}`, 'error');
-    } finally {
-      setLoadingState('projects', false);
+      throw error;
     }
-  }, [showSnackbar, setLoadingState, fetchProjects, fetchTokens]);
+  }, [showSnackbar, fetchProjects, fetchTokens]);
 
   // Loading screen
   if (loading) {
@@ -1000,6 +913,15 @@ const AdminDashboard = () => {
         project={calculatorDialog.project}
         onCreditCalculated={handleCreditCalculated}
       />
+      
+      {/* Admin Mint Verification Modal */}
+      <AdminMintVerificationModal
+        open={mintVerificationModal.open}
+        onClose={() => handleDialogClose('mint')}
+        project={mintVerificationModal.project}
+        onMintConfirm={handleMintConfirm}
+        showSnackbar={showSnackbar}
+      />
     </Box>
   );
 
@@ -1164,8 +1086,8 @@ const AdminDashboard = () => {
         columns={[
           { field: 'email', headerName: 'Email', flex: 1 },
           { field: 'full_name', headerName: 'Full Name', flex: 1 },
-          { field: 'organization_name', headerName: 'Organization', width: 200 },
-          { field: 'role', headerName: 'Role', width: 120, render: (value) => (
+          { field: 'organization_name', headerName: 'Organization', width: 180 },
+          { field: 'role', headerName: 'Role', width: 100, render: (value) => (
             <Chip 
               label={value} 
               size="small" 
@@ -1175,7 +1097,37 @@ const AdminDashboard = () => {
               }}
             />
           )},
-          { field: 'is_verified', headerName: 'Verified', width: 100, render: (value) => (
+          { field: 'wallet_address', headerName: 'Wallet Status', width: 120, render: (value, row) => {
+            if (value) {
+              const isVerified = row.wallet_verified;
+              return (
+                <Chip 
+                  label={isVerified ? '✓ Verified' : '✓ Connected'} 
+                  size="small" 
+                  sx={{ 
+                    bgcolor: isVerified ? '#4caf50' : '#2196f3',
+                    color: '#ffffff',
+                    fontWeight: 600
+                  }}
+                  title={`Wallet: ${value.slice(0, 8)}...${value.slice(-6)}\nConnected: ${formatDate(row.wallet_connected_at)}\nVerified: ${isVerified ? 'Yes' : 'No'}`}
+                />
+              );
+            } else {
+              return (
+                <Chip 
+                  label="⚠ No Wallet" 
+                  size="small" 
+                  sx={{ 
+                    bgcolor: '#ff9800',
+                    color: '#ffffff',
+                    fontWeight: 600
+                  }}
+                  title="User has not connected a wallet address"
+                />
+              );
+            }
+          }},
+          { field: 'is_verified', headerName: 'Verified', width: 90, render: (value) => (
             <Chip 
               label={value ? 'Yes' : 'No'} 
               size="small" 
@@ -1183,7 +1135,7 @@ const AdminDashboard = () => {
             />
           )},
           { field: 'created_at', headerName: 'Joined', width: 120, render: (value) => formatDate(value) },
-          { field: 'is_blocked', headerName: 'Status', width: 100, render: (value) => (
+          { field: 'is_blocked', headerName: 'Status', width: 90, render: (value) => (
             <Chip 
               label={value ? 'Blocked' : 'Active'} 
               size="small" 
@@ -1192,8 +1144,49 @@ const AdminDashboard = () => {
           )}
         ]}
         actions={[
-          { label: 'Edit', icon: <EditIcon />, onClick: (item) => console.log('Edit user', item) },
-          { label: 'Block/Unblock', icon: <BlockIcon />, onClick: (item) => console.log('Block user', item) }
+          { 
+            label: 'View Details', 
+            icon: <ViewIcon />, 
+            onClick: (item) => {
+              showSnackbar(`User Details: ${item.full_name || item.email} - ${item.role} - ${item.wallet_address ? 'Wallet Connected' : 'No Wallet'}`, 'info');
+            },
+            color: '#2196f3'
+          },
+          { 
+            label: 'Check Projects', 
+            icon: <InfoIcon />, 
+            onClick: async (item) => {
+              try {
+                showSnackbar('Checking user projects...', 'info');
+                
+                const { data: userProjects, error } = await supabase
+                  .from('projects')
+                  .select('id, title, status, calculated_credits, estimated_credits')
+                  .eq('user_id', item.id);
+                
+                if (error) {
+                  showSnackbar(`Error fetching projects: ${error.message}`, 'error');
+                  return;
+                }
+                
+                if (!userProjects || userProjects.length === 0) {
+                  showSnackbar(`User "${item.email}" has no projects.`, 'info');
+                } else {
+                  const projectInfo = userProjects.map(p => 
+                    `• ${p.title} (${p.status}) - Credits: ${p.calculated_credits || p.estimated_credits || 'N/A'}`
+                  ).join('\n');
+                  
+                  showSnackbar(`Found ${userProjects.length} projects for ${item.email}`, 'success');
+                  showSnackbar(`Found ${userProjects.length} projects for this user.`, 'success');
+                }
+              } catch (error) {
+                showSnackbar(`Error checking projects: ${error.message}`, 'error');
+              }
+            },
+            color: '#ff9800'
+          },
+          { label: 'Edit', icon: <EditIcon />, onClick: (item) => showSnackbar('Edit user functionality not implemented', 'info'), color: '#4caf50' },
+          { label: 'Block/Unblock', icon: <BlockIcon />, onClick: (item) => showSnackbar('Block user functionality not implemented', 'info'), color: '#f44336' }
         ]}
       />
     );
@@ -1218,7 +1211,7 @@ const AdminDashboard = () => {
     }
     
     // Generate dynamic actions based on project status
-    const getProjectActions = (project) => {
+  const getProjectActions = (project) => {
       const actions = [
         { label: 'Review', icon: <ViewIcon />, onClick: handleProjectReview }
       ];
@@ -1254,6 +1247,7 @@ const AdminDashboard = () => {
         // Check wallet address from user's profile, not project
         // Handle case where profiles might be null or undefined
         const userWalletAddress = (project.profiles && project.profiles.wallet_address) || project.wallet_address;
+        
         if (userWalletAddress) {
           // User has wallet - show mint button
           actions.push({ 
@@ -1318,30 +1312,28 @@ const AdminDashboard = () => {
               />
             );
           }},
-          { field: 'estimated_credits', headerName: 'Est. Credits', width: 120, render: (value) => 
-            value ? `${parseInt(value).toLocaleString()} CCR` : 'N/A'
-          },
-          { field: 'calculated_credits', headerName: 'Calc. Credits', width: 120, render: (value) => 
-            value ? `${parseInt(value).toLocaleString()} CCR` : 'N/A'
-          },
-          { field: 'credits_issued', headerName: 'Issued', width: 120, render: (value) => 
-            value ? `${parseInt(value).toLocaleString()} CCR` : 'N/A'
-          },
-          { field: 'wallet_address', headerName: 'Wallet Status', width: 120, render: (value, row) => {
+          { field: 'estimated_credits', headerName: 'Est. Credits', width: 120, render: (value) => formatCredits(value) },
+          { field: 'calculated_credits', headerName: 'Calc. Credits', width: 120, render: (value) => formatCredits(value) },
+          { field: 'credits_issued', headerName: 'Issued', width: 120, render: (value) => formatCredits(value) },
+          { field: 'wallet_address', headerName: 'Wallet Status', width: 140, render: (value, row) => {
             // Check wallet address from user's profile first, then project
             const userWalletAddress = (row.profiles && row.profiles.wallet_address) || value;
+            const walletVerified = row.profiles && row.profiles.wallet_verified;
             
             if (userWalletAddress) {
+              const displayText = walletVerified ? '✓ Verified' : '✓ Connected';
+              const bgColor = walletVerified ? '#4caf50' : '#2196f3';
+              
               return (
                 <Chip 
-                  label="✓ Connected" 
+                  label={displayText}
                   size="small" 
                   sx={{ 
-                    bgcolor: '#4caf50',
+                    bgcolor: bgColor,
                     color: '#ffffff',
                     fontWeight: 600
                   }}
-                  title={`Wallet: ${userWalletAddress.slice(0, 8)}...${userWalletAddress.slice(-6)}`}
+                  title={`Wallet: ${userWalletAddress.slice(0, 8)}...${userWalletAddress.slice(-6)}\nSource: ${row.profiles?.wallet_address ? 'User Profile' : 'Project Field'}\nVerified: ${walletVerified ? 'Yes' : 'No'}`}
                 />
               );
             } else {
@@ -1354,7 +1346,7 @@ const AdminDashboard = () => {
                     color: '#ffffff',
                     fontWeight: 600
                   }}
-                  title="User needs to connect wallet address"
+                  title={`User ID: ${row.user_id || 'Unknown'}\nUser needs to connect wallet address in their profile`}
                 />
               );
             }
@@ -1391,16 +1383,20 @@ const AdminDashboard = () => {
               </Box>
             );
           }},
-          { field: 'amount', headerName: 'Amount', width: 120, render: (value) => (
-            <Box sx={{ textAlign: 'right' }}>
-              <Typography variant="body2" sx={{ color: '#00d4aa', fontWeight: 600 }}>
-                {parseInt(value).toLocaleString()}
-              </Typography>
-              <Typography variant="caption" sx={{ color: '#a0aec0' }}>
-                CCR
-              </Typography>
-            </Box>
-          )},
+          { field: 'amount', headerName: 'Amount', width: 120, render: (value) => {
+            const formattedAmount = formatCredits(value);
+            const [amount, unit] = formattedAmount.split(' ');
+            return (
+              <Box sx={{ textAlign: 'right' }}>
+                <Typography variant="body2" sx={{ color: '#00d4aa', fontWeight: 600 }}>
+                  {amount !== 'N/A' ? amount : 'N/A'}
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#a0aec0' }}>
+                  {unit || ''}
+                </Typography>
+              </Box>
+            );
+          }},
           { field: 'token_standard', headerName: 'Standard', width: 100, render: (value) => (
             <Chip 
               label={value || 'SPL'} 
@@ -1467,8 +1463,7 @@ const AdminDashboard = () => {
             icon: <ViewIcon />, 
             onClick: (item) => {
               // Create a detailed view of the token
-              const details = `Token Details:\n\nAmount: ${parseInt(item.amount).toLocaleString()} CCR\nMint: ${item.mint}\nRecipient: ${item.recipient}\nTransaction: ${item.minted_tx}\nProject: ${item.projects?.title || 'Unknown'}\nStatus: ${item.status}\nMinted: ${formatDate(item.created_at)}`;
-              alert(details);
+              showSnackbar(`Token: ${formatCredits(item.amount)} for ${item.projects?.title || 'Unknown Project'} - Status: ${item.status}`, 'info');
             },
             color: '#2196f3'
           },
